@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-dependencies = []
+dependencies = [
+    "pydantic>=2.7",
+]
 
 [project.scripts]
 kosha = "kosha.cli:main"
