@@ -69,6 +69,9 @@ class Claim(BaseModel):
 
     The claim layer lets a merge supersede a specific statement instead of
     rewriting the whole body, which keeps fidelity stable across many ingests.
+    ``supersedes`` chains a replacement claim back to the claim it retired, so a
+    concept's full lineage (current head + retired ancestors) is reconstructable
+    without deleting history.
     """
 
     claim_id: str
@@ -77,6 +80,7 @@ class Claim(BaseModel):
     asserted_at: datetime
     status: ClaimStatus = ClaimStatus.CURRENT
     citations: list[str] = Field(default_factory=list)
+    supersedes: str | None = None
 
 
 class Concept(BaseModel):
