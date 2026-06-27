@@ -28,6 +28,7 @@ from kosha.dedup.decision import (
     route_candidates,
 )
 from kosha.dedup.resolver import Decision, resolve_draft
+from kosha.dedup.split import Splitter, make_splitter, split_draft
 
 __all__ = [
     "DEFAULT_THRESHOLDS",
@@ -39,12 +40,15 @@ __all__ = [
     "LexicalAdjudicator",
     "Route",
     "Routing",
+    "Splitter",
     "Thresholds",
     "Verdict",
     "build_adjudication_prompt",
     "draft_query_text",
+    "make_splitter",
     "nearest_candidates",
     "parse_verdict",
     "resolve_draft",
     "route_candidates",
+    "split_draft",
 ]
