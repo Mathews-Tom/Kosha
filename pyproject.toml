@@ -8,6 +8,9 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 dependencies = []
 
+[project.scripts]
+kosha = "kosha.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
