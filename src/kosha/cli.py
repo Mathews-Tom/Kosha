@@ -34,8 +34,11 @@ from kosha.eval import (
     evaluate_duplicate_rate,
     evaluate_extractor,
     evaluate_merge,
+    evaluate_relate,
     load_merge_cases,
+    load_relate_cases,
 )
+from kosha.link import LexicalRelator
 from kosha.merge import LexicalClaimTargeter
 from kosha.okf import load_bundle
 from kosha.providers import resolve_embedding_provider, resolve_generation_provider
@@ -46,6 +49,7 @@ _DEFAULT_BUNDLE = Path("bundles/northwind")
 _DEDUP_LABELS = Path("labels/dedup_seed.jsonl")
 _GRANULARITY_LABELS = Path("labels/granularity_seed.jsonl")
 _MERGE_LABELS = Path("labels/merge_seed.jsonl")
+_RELATE_LABELS = Path("labels/relate_seed.jsonl")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -126,6 +130,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=_MERGE_LABELS,
         help="Merge claim-targeting cases (default: labels/merge_seed.jsonl).",
     )
+    relate_eval_parser = eval_subparsers.add_parser(
+        "relate",
+        help="Score the cross-linker relate surface: link-discovery precision/recall.",
+    )
+    relate_eval_parser.add_argument(
+        "--labels",
+        type=Path,
+        default=_RELATE_LABELS,
+        help="Relate cases (default: labels/relate_seed.jsonl).",
+    )
     return parser
 
 
@@ -204,7 +218,9 @@ def _run_eval(args: argparse.Namespace) -> int:
         return _run_eval_dedup(args.labels, args.bundle)
     if args.eval_command == "merge":
         return _run_eval_merge(args.labels)
-    print("kosha: usage: kosha eval {extract,dedup,merge} [...]", file=sys.stderr)
+    if args.eval_command == "relate":
+        return _run_eval_relate(args.labels)
+    print("kosha: usage: kosha eval {extract,dedup,merge,relate} [...]", file=sys.stderr)
     return 2
 
 
@@ -263,6 +279,21 @@ def _run_eval_merge(labels_path: Path) -> int:
     report = evaluate_merge(load_merge_cases(labels_path), targeter)
     print(f"Merge eval over {labels_path} ({report.case_count} cases, targeter={targeter.name})")
     print(f"targeting accuracy: {report.score:.3f} ({report.correct}/{report.case_count})")
+    return 0
+
+
+def _run_eval_relate(labels_path: Path) -> int:
+    """Score the cross-linker relate surface: link-discovery precision/recall/F1."""
+    if not labels_path.is_file():
+        print(f"kosha: labels file not found: {labels_path}", file=sys.stderr)
+        return 2
+    relator = LexicalRelator()
+    report = evaluate_relate(load_relate_cases(labels_path), relator)
+    print(f"Relate eval over {labels_path} ({report.case_count} cases, relator={relator.name})")
+    print(
+        f"precision: {report.precision:.3f}  recall: {report.recall:.3f}  f1: {report.f1:.3f} "
+        f"({report.true_positives}/{report.gold_total} gold edges)"
+    )
     return 0
 
 

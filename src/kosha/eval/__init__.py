@@ -25,6 +25,12 @@ from kosha.eval.merge import (
     evaluate_merge,
     load_merge_cases,
 )
+from kosha.eval.relate import (
+    RelateCase,
+    RelateEvalReport,
+    evaluate_relate,
+    load_relate_cases,
+)
 
 __all__ = [
     "DedupEvalReport",
@@ -34,9 +40,13 @@ __all__ = [
     "MergeCase",
     "MergeEvalCase",
     "MergeEvalReport",
+    "RelateCase",
+    "RelateEvalReport",
     "evaluate_dedup",
     "evaluate_duplicate_rate",
     "evaluate_extractor",
     "evaluate_merge",
+    "evaluate_relate",
     "load_merge_cases",
+    "load_relate_cases",
 ]
