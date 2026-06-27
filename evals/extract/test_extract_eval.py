@@ -25,8 +25,13 @@ def test_extractor_recovers_seed_boundaries() -> None:
     # The heading-segmenting extractor matches every labeled granularity class:
     # atomic -> one draft, overscoped -> many.
     assert report.correct == report.label_count
-    assert any(c.expected_atomic for c in report.cases)
-    assert any(not c.expected_atomic for c in report.cases)
+    atomic = [c for c in report.cases if c.expected_atomic]
+    overscoped = [c for c in report.cases if not c.expected_atomic]
+    assert atomic and overscoped
+    # Over-split resistance: a multi-sentence atomic doc still yields one draft.
+    assert all(c.draft_count == 1 for c in atomic)
+    # Under-split detection: a bundled doc yields more than one.
+    assert all(c.draft_count > 1 for c in overscoped)
 
 
 def test_extractor_eval_is_deterministic() -> None:

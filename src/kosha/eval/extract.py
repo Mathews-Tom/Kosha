@@ -7,10 +7,13 @@ label's text and graded on whether its draft count matches that class:
 * an ``atomic`` doc must yield exactly one draft (it did not over-split), and
 * an ``overscoped`` doc must yield more than one (it caught the over-scoping).
 
-This is a real boundary check: a whole-document extractor fails every overscoped
-case, a per-sentence splitter fails every atomic case, and only an extractor that
-recovers concept boundaries scores well. The score is the fraction of labels the
-extractor classifies correctly.
+This discriminates against both failure modes the plan flags for the extractor:
+a whole-document extractor (one draft always) fails every overscoped case, and
+an over-splitter (e.g. one draft per sentence) fails the multi-sentence atomic
+cases. Concepts in the seed are heading-delimited, so the score measures
+heading-boundary recovery; decoupling heading count from concept count is future
+label-set work, with the M6 dedup ``split`` branch as the runtime safety net. The
+score is the fraction of labels the extractor classifies correctly.
 """
 
 from __future__ import annotations
