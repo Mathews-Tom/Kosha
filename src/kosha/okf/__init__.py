@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from kosha.okf.errors import FrontmatterError, OKFError, WikilinkError
+from kosha.okf.load import load_bundle
 from kosha.okf.parse import (
     concept_id_from_path,
     extract_out_links,
@@ -23,6 +24,7 @@ __all__ = [
     "WikilinkError",
     "concept_id_from_path",
     "extract_out_links",
+    "load_bundle",
     "load_raw_frontmatter",
     "parse_concept",
     "parse_frontmatter",
