@@ -1,20 +1,29 @@
-"""Serialize the typed model back to OKF markdown.
+"""Serialize the typed model back to OKF markdown, with writer conformance guards.
 
 Serialization is deterministic and idempotent: a concept parsed from canonical
-OKF markdown serializes back byte-for-byte. The index serializer can never emit a
-``type:`` key and generated index links are absolute bundle-relative
-(``/path/to/concept.md``), since those are the conformance properties conversion
-tools commonly violate.
+OKF markdown serializes back byte-for-byte. The writer also enforces the
+conformance rules conversion tools commonly violate: the index serializer can
+never emit a ``type:`` key, generated index links are absolute bundle-relative
+(``/path/to/concept.md``), and Obsidian ``[[wikilinks]]`` are rejected in favor
+of standard markdown links.
 """
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 
 import yaml
 
 from kosha.model import Concept, Frontmatter, IndexDoc
+from kosha.okf.errors import WikilinkError
+
+# Obsidian wikilink. ``_FENCED``/``_INLINE`` strip code spans first so bracket
+# runs like ``df[["col"]]`` inside code are not mistaken for wikilinks.
+_WIKILINK = re.compile(r"\[\[[^\]]+\]\]")
+_FENCED = re.compile(r"```.*?```", re.DOTALL)
+_INLINE = re.compile(r"`[^`]*`")
 
 # Disable PyYAML's default line folding (best_width=80) so long frontmatter
 # scalars (descriptions, titles, URLs) stay on one line and round-trip byte-stable.
@@ -66,7 +75,11 @@ def serialize_frontmatter(frontmatter: Frontmatter) -> str:
 
 
 def serialize_concept(concept: Concept) -> str:
-    """Render a concept to OKF markdown: frontmatter block plus verbatim body."""
+    """Render a concept to OKF markdown: frontmatter block plus verbatim body.
+
+    Raises :class:`WikilinkError` if the body contains ``[[wikilink]]`` syntax.
+    """
+    _reject_wikilinks(concept.body)
     return f"---\n{serialize_frontmatter(concept.frontmatter)}---\n{concept.body}"
 
 
@@ -108,6 +121,15 @@ def render_citations(citations: list[str]) -> str:
     lines = ["# Citations"]
     lines.extend(f"[{number}] {citation}" for number, citation in enumerate(citations, start=1))
     return "\n".join(lines) + "\n"
+
+
+def _reject_wikilinks(body: str) -> None:
+    prose = _INLINE.sub("", _FENCED.sub("", body))
+    match = _WIKILINK.search(prose)
+    if match is not None:
+        raise WikilinkError(
+            f"non-OKF wikilink {match.group(0)!r}; use a standard markdown link"
+        )
 
 
 def _is_empty_list(value: object) -> bool:

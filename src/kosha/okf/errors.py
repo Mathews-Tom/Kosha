@@ -9,3 +9,7 @@ class OKFError(Exception):
 
 class FrontmatterError(OKFError):
     """Raised when a concept document lacks a parseable YAML frontmatter block."""
+
+
+class WikilinkError(OKFError):
+    """Raised when a writer is asked to emit a non-OKF ``[[wikilink]]``."""
