@@ -3,8 +3,9 @@
 The resolver wires the deterministic steps to the single LLM surface: find
 nearest candidates (M6 PR-1), route by two thresholds (M6 PR-2), and reach an
 :class:`~kosha.dedup.adjudicate.Adjudicator` only for the ambiguous band. A SPLIT
-verdict is recorded as a leaf here; the granularity split + re-resolve is added
-in M6 PR-4. Every decision carries the score and a rationale that compose the
+verdict triggers a granularity split + re-resolve (M6 PR-4): the draft is
+re-segmented and each piece re-resolved into child decisions. Every decision
+carries the score and a rationale that compose the
 audit log (overview §6).
 """
 
@@ -22,6 +23,7 @@ from kosha.dedup.decision import (
     Thresholds,
     route_candidates,
 )
+from kosha.dedup.split import Splitter
 from kosha.extract import ConceptDraft
 from kosha.index.embedding import EmbeddingIndex
 
@@ -32,7 +34,7 @@ class Decision:
 
     ``concept_id`` is the UPDATE target (``None`` for CREATE/SPLIT). ``score`` is
     the top nearest-neighbor cosine; ``adjudicated`` records whether the LLM band
-    was reached.
+    was reached. ``parts`` holds the re-resolved child decisions of a SPLIT.
     """
 
     action: Action
@@ -40,6 +42,7 @@ class Decision:
     score: float
     rationale: str
     adjudicated: bool = False
+    parts: tuple[Decision, ...] = ()
 
 
 def resolve_draft(
@@ -50,6 +53,7 @@ def resolve_draft(
     adjudicator: Adjudicator,
     thresholds: Thresholds = DEFAULT_THRESHOLDS,
     k: int = 5,
+    splitter: Splitter | None = None,
 ) -> Decision:
     """Resolve ``draft`` to UPDATE / CREATE / SPLIT against ``index``.
 
@@ -76,4 +80,20 @@ def resolve_draft(
         return Decision(Action.UPDATE, candidate_id, routing.score, rationale, adjudicated=True)
     if adjudication.verdict is Verdict.DIFFERENT:
         return Decision(Action.CREATE, None, routing.score, rationale, adjudicated=True)
-    return Decision(Action.SPLIT, None, routing.score, rationale, adjudicated=True)
+    if splitter is None:
+        return Decision(Action.SPLIT, None, routing.score, rationale, adjudicated=True)
+    parts = tuple(
+        resolve_draft(
+            sub_draft,
+            index,
+            concept_texts,
+            adjudicator=adjudicator,
+            thresholds=thresholds,
+            k=k,
+            splitter=None,
+        )
+        for sub_draft in splitter(draft)
+    )
+    return Decision(
+        Action.SPLIT, None, routing.score, rationale, adjudicated=True, parts=parts
+    )
