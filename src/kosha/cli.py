@@ -29,7 +29,14 @@ from kosha.bench import (
     run_benchmark,
 )
 from kosha.dedup import LexicalAdjudicator
-from kosha.eval import evaluate_dedup, evaluate_duplicate_rate, evaluate_extractor
+from kosha.eval import (
+    evaluate_dedup,
+    evaluate_duplicate_rate,
+    evaluate_extractor,
+    evaluate_merge,
+    load_merge_cases,
+)
+from kosha.merge import LexicalClaimTargeter
 from kosha.okf import load_bundle
 from kosha.providers import resolve_embedding_provider, resolve_generation_provider
 from kosha.validate import validate_bundle
@@ -38,6 +45,7 @@ from kosha.validate import validate_bundle
 _DEFAULT_BUNDLE = Path("bundles/northwind")
 _DEDUP_LABELS = Path("labels/dedup_seed.jsonl")
 _GRANULARITY_LABELS = Path("labels/granularity_seed.jsonl")
+_MERGE_LABELS = Path("labels/merge_seed.jsonl")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -107,6 +115,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=_DEFAULT_BUNDLE,
         help="Repeated-ingest bundle for duplicate rate (default: bundles/northwind).",
+    )
+    merge_eval_parser = eval_subparsers.add_parser(
+        "merge",
+        help="Score the merge surface: claim-targeting accuracy.",
+    )
+    merge_eval_parser.add_argument(
+        "--labels",
+        type=Path,
+        default=_MERGE_LABELS,
+        help="Merge claim-targeting cases (default: labels/merge_seed.jsonl).",
     )
     return parser
 
@@ -184,7 +202,9 @@ def _run_eval(args: argparse.Namespace) -> int:
         return _run_eval_extract(args.labels)
     if args.eval_command == "dedup":
         return _run_eval_dedup(args.labels, args.bundle)
-    print("kosha: usage: kosha eval {extract,dedup} [...]", file=sys.stderr)
+    if args.eval_command == "merge":
+        return _run_eval_merge(args.labels)
+    print("kosha: usage: kosha eval {extract,dedup,merge} [...]", file=sys.stderr)
     return 2
 
 
@@ -231,6 +251,18 @@ def _run_eval_dedup(labels_path: Path, bundle_path: Path) -> int:
         f"duplicate-rate: {duplicates.duplicate_rate:.3f} "
         f"({duplicates.created} created / {duplicates.concept_count} concepts on repeated ingest)"
     )
+    return 0
+
+
+def _run_eval_merge(labels_path: Path) -> int:
+    """Score the merge surface's claim-targeting accuracy against seed cases."""
+    if not labels_path.is_file():
+        print(f"kosha: labels file not found: {labels_path}", file=sys.stderr)
+        return 2
+    targeter = LexicalClaimTargeter()
+    report = evaluate_merge(load_merge_cases(labels_path), targeter)
+    print(f"Merge eval over {labels_path} ({report.case_count} cases, targeter={targeter.name})")
+    print(f"targeting accuracy: {report.score:.3f} ({report.correct}/{report.case_count})")
     return 0
 
 

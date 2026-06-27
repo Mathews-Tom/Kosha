@@ -18,13 +18,25 @@ from kosha.eval.extract import (
     ExtractEvalReport,
     evaluate_extractor,
 )
+from kosha.eval.merge import (
+    MergeCase,
+    MergeEvalCase,
+    MergeEvalReport,
+    evaluate_merge,
+    load_merge_cases,
+)
 
 __all__ = [
     "DedupEvalReport",
     "DuplicateRateReport",
     "ExtractEvalCase",
     "ExtractEvalReport",
+    "MergeCase",
+    "MergeEvalCase",
+    "MergeEvalReport",
     "evaluate_dedup",
     "evaluate_duplicate_rate",
     "evaluate_extractor",
+    "evaluate_merge",
+    "load_merge_cases",
 ]
