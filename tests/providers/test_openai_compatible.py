@@ -56,6 +56,16 @@ def test_parse_chat_response_extracts_message_content() -> None:
     assert parse_chat_response(payload) == "45 days"
 
 
+def test_parse_embedding_response_orders_items_by_index() -> None:
+    payload = {
+        "data": [
+            {"index": 1, "embedding": [9, 9]},
+            {"index": 0, "embedding": [1, 1]},
+        ]
+    }
+    assert parse_embedding_response(payload) == [[1.0, 1.0], [9.0, 9.0]]
+
+
 @pytest.mark.parametrize(
     "payload",
     [

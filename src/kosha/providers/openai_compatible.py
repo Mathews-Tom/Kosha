@@ -48,11 +48,19 @@ def build_chat_request(
 
 
 def parse_embedding_response(payload: object) -> list[Vector]:
-    """Extract embedding vectors from a parsed embeddings response."""
+    """Extract embedding vectors from a parsed embeddings response.
+
+    Items are ordered by their ``index`` field when every item carries one, so an
+    endpoint that returns embeddings out of input order is realigned rather than
+    silently pairing vectors with the wrong text.
+    """
     data = _require_list(_require_mapping(payload, "response").get("data"), "data")
+    items = [_require_mapping(item, "data item") for item in data]
+    if all(_is_int(item.get("index")) for item in items):
+        items.sort(key=lambda item: _as_int(item["index"]))
     vectors: list[Vector] = []
-    for item in data:
-        raw = _require_list(_require_mapping(item, "data item").get("embedding"), "embedding")
+    for item in items:
+        raw = _require_list(item.get("embedding"), "embedding")
         vectors.append([_to_float(value) for value in raw])
     return vectors
 
@@ -96,6 +104,12 @@ class OpenAICompatibleEmbeddingProvider:
             raise ValueError(
                 f"provider returned {len(vectors)} vectors for {len(texts)} inputs"
             )
+        for vector in vectors:
+            if len(vector) != self._dimension:
+                raise ValueError(
+                    f"provider returned dimension {len(vector)} but "
+                    f"KOSHA_EMBED_DIM is {self._dimension}"
+                )
         return vectors
 
 
@@ -154,3 +168,14 @@ def _to_float(value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("embedding contains a non-numeric value")
     return float(value)
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _as_int(value: object) -> int:
+    if not _is_int(value):
+        raise ValueError("expected an integer index")
+    assert isinstance(value, int)
+    return value
