@@ -10,6 +10,7 @@ from kosha.okf.parse import (
     load_raw_frontmatter,
     parse_concept,
     parse_frontmatter,
+    resolve_link_target,
 )
 from kosha.okf.serialize import (
     render_citations,
@@ -29,6 +30,7 @@ __all__ = [
     "parse_concept",
     "parse_frontmatter",
     "render_citations",
+    "resolve_link_target",
     "serialize_concept",
     "serialize_frontmatter",
     "serialize_index",
