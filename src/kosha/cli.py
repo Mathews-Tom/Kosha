@@ -13,17 +13,29 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from kosha import __version__
-from kosha.bench import render_table, run_benchmark
+from kosha.bench import (
+    evaluate_granularity,
+    evaluate_kill_signals,
+    evaluate_threshold_only,
+    go_no_go,
+    load_dedup_pairs,
+    load_granularity_labels,
+    render_premise_report,
+    render_table,
+    run_benchmark,
+)
 from kosha.okf import load_bundle
 from kosha.providers import resolve_embedding_provider, resolve_generation_provider
 from kosha.validate import validate_bundle
 
-# Default golden corpus the benchmark runs against.
+# Default golden corpus the benchmark runs against, and the seed label files.
 _DEFAULT_BUNDLE = Path("bundles/northwind")
+_DEDUP_LABELS = Path("labels/dedup_seed.jsonl")
+_GRANULARITY_LABELS = Path("labels/granularity_seed.jsonl")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -96,38 +108,44 @@ def _run_validate(bundle: Path) -> int:
 
 
 def _run_bench(bundle_path: Path, report_path: Path | None) -> int:
-    """Run the benchmark on ``bundle_path``; optionally write a report."""
+    """Run the benchmark + dedup gate on ``bundle_path``; optionally write a report."""
     if not bundle_path.is_dir():
         print(f"kosha: not a bundle directory: {bundle_path}", file=sys.stderr)
         return 2
     bundle = load_bundle(bundle_path)
-    report = run_benchmark(
-        bundle,
-        resolve_embedding_provider(),
-        resolve_generation_provider(),
-    )
-    table = render_table(report)
+    embedding_provider = resolve_embedding_provider()
+    report = run_benchmark(bundle, embedding_provider, resolve_generation_provider())
+    dedup = evaluate_threshold_only(load_dedup_pairs(_DEDUP_LABELS), embedding_provider)
+    granularity = evaluate_granularity(load_granularity_labels(_GRANULARITY_LABELS))
+    kill_signals = evaluate_kill_signals(report, dedup)
+    verdict = go_no_go(kill_signals)
     print(
         f"Benchmark over {bundle_path} "
         f"({report.query_count} queries, embed={report.embedding_provider}, "
         f"gen={report.generation_provider})"
     )
-    print(table)
+    print(render_table(report))
+    for signal in kill_signals:
+        print(f"{signal.id}: {signal.verdict}")
+    print(f"Premise verdict: {verdict}")
     if report_path is not None:
-        document = _render_document(bundle_path, table)
+        document = render_premise_report(
+            bundle_path=str(bundle_path),
+            concept_count=len(bundle.concepts),
+            max_depth=_max_depth(bundle.concepts),
+            report=report,
+            dedup=dedup,
+            granularity=granularity,
+            kill_signals=kill_signals,
+        )
         report_path.write_text(document, encoding="utf-8")
         print(f"Wrote report to {report_path}")
     return 0
 
 
-def _render_document(bundle_path: Path, table: str) -> str:
-    """Render a minimal benchmark report document (table only)."""
-    return (
-        "# Kosha Premise Benchmark\n\n"
-        f"Corpus: `{bundle_path}`\n\n"
-        "## Strategy comparison\n\n"
-        f"{table}\n"
-    )
+def _max_depth(concept_ids: Iterable[str]) -> int:
+    """Return the deepest concept path depth (segments) in the bundle."""
+    return max((cid.count("/") + 1 for cid in concept_ids), default=0)
 
 
 if __name__ == "__main__":
