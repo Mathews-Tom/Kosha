@@ -25,6 +25,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from kosha.lint import granularity_warnings
 from kosha.okf.errors import FrontmatterError
 from kosha.okf.parse import (
     concept_id_from_path,
@@ -41,13 +42,14 @@ _LOG_DATE_HEADING = re.compile(r"(?m)^##[ \t]+(\d{4}-\d{2}-\d{2})[ \t]*$")
 
 
 class Rule(StrEnum):
-    """Identifier for a conformance rule, surfaced in findings and tests."""
+    """Identifier for a validation rule (conformance or permissive lint)."""
 
     FRONTMATTER = "okf-frontmatter"  # rule 1: parseable frontmatter block
     TYPE = "okf-type"  # rule 2: non-empty ``type``
     RESERVED_INDEX = "okf-reserved-index"  # rule 3: ``index.md`` convention
     RESERVED_LOG = "okf-reserved-log"  # rule 3: ``log.md`` convention
     BROKEN_LINK = "okf-broken-link"  # permissive: cross-link to an absent target
+    GRANULARITY = "okf-granularity"  # permissive lint: one concept, one thing
 
 
 class Severity(StrEnum):
@@ -104,6 +106,7 @@ def validate_bundle(root: Path) -> Report:
             findings.extend(_check_log(rel, text))
         else:
             findings.extend(_check_concept(rel, text))
+            findings.extend(_check_granularity(rel, text))
         findings.extend(_check_links(rel, text, existing))
     return Report(findings=findings)
 
@@ -126,6 +129,18 @@ def _check_links(rel: str, text: str, existing: set[str]) -> list[Finding]:
                 )
             )
     return findings
+
+
+def _check_granularity(rel: str, text: str) -> list[Finding]:
+    """Emit advisory granularity warnings for a concept body (permissive)."""
+    try:
+        _, body = load_raw_frontmatter(text)
+    except FrontmatterError:
+        body = text
+    return [
+        Finding(rule=Rule.GRANULARITY, severity=Severity.WARNING, path=rel, message=msg)
+        for msg in granularity_warnings(body)
+    ]
 
 
 def _check_concept(rel: str, text: str) -> list[Finding]:
