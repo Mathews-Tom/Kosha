@@ -10,8 +10,10 @@ conformance rules (OKF spec §7):
    ``index.md`` declaring only ``okf_version``); log files use ISO
    ``YYYY-MM-DD`` date headings ordered newest-first.
 
-Conformance violations are hard failures. Permissive-consumption concerns
-(broken cross-links, granularity) are layered on top by the warning model.
+Conformance violations are errors (rules 1-3). Permissive-consumption concerns
+are reported as warnings that never fail validation — broken cross-links here,
+granularity via :mod:`kosha.lint`. A bundle is conformant when it has no
+error-severity findings.
 """
 
 from __future__ import annotations
@@ -24,7 +26,11 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from kosha.okf.errors import FrontmatterError
-from kosha.okf.parse import load_raw_frontmatter
+from kosha.okf.parse import (
+    concept_id_from_path,
+    extract_out_links,
+    load_raw_frontmatter,
+)
 
 # Reserved file basenames whose structure is governed by rule 3 and which are
 # exempt from the frontmatter rules (1 and 2).
@@ -41,12 +47,21 @@ class Rule(StrEnum):
     TYPE = "okf-type"  # rule 2: non-empty ``type``
     RESERVED_INDEX = "okf-reserved-index"  # rule 3: ``index.md`` convention
     RESERVED_LOG = "okf-reserved-log"  # rule 3: ``log.md`` convention
+    BROKEN_LINK = "okf-broken-link"  # permissive: cross-link to an absent target
+
+
+class Severity(StrEnum):
+    """Whether a finding fails validation (error) or is merely advisory (warning)."""
+
+    ERROR = "error"
+    WARNING = "warning"
 
 
 class Finding(BaseModel):
     """A single conformance issue found in a bundle file."""
 
     rule: Rule
+    severity: Severity = Severity.ERROR
     path: str
     message: str
 
@@ -57,9 +72,19 @@ class Report(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
 
     @property
+    def errors(self) -> list[Finding]:
+        """Error-severity findings — the ones that fail validation."""
+        return [f for f in self.findings if f.severity is Severity.ERROR]
+
+    @property
+    def warnings(self) -> list[Finding]:
+        """Advisory findings that do not fail validation."""
+        return [f for f in self.findings if f.severity is Severity.WARNING]
+
+    @property
     def ok(self) -> bool:
-        """True when the bundle is conformant (no findings)."""
-        return not self.findings
+        """True when the bundle has no error-severity findings (warnings allowed)."""
+        return not self.errors
 
 
 def validate_bundle(root: Path) -> Report:
@@ -68,8 +93,10 @@ def validate_bundle(root: Path) -> Report:
     Files are visited in sorted path order so findings are deterministic.
     """
     findings: list[Finding] = []
-    for path in sorted(root.rglob("*.md")):
-        rel = path.relative_to(root).as_posix()
+    paths = sorted(root.rglob("*.md"))
+    rels = [p.relative_to(root).as_posix() for p in paths]
+    existing = {concept_id_from_path(rel) for rel in rels}
+    for path, rel in zip(paths, rels, strict=True):
         text = path.read_text(encoding="utf-8")
         if path.name == "index.md":
             findings.extend(_check_index(rel, text, is_root=path.parent == root))
@@ -77,7 +104,28 @@ def validate_bundle(root: Path) -> Report:
             findings.extend(_check_log(rel, text))
         else:
             findings.extend(_check_concept(rel, text))
+        findings.extend(_check_links(rel, text, existing))
     return Report(findings=findings)
+
+
+def _check_links(rel: str, text: str, existing: set[str]) -> list[Finding]:
+    """Warn on in-bundle cross-links whose target file is absent (permissive)."""
+    try:
+        _, body = load_raw_frontmatter(text)
+    except FrontmatterError:
+        body = text
+    findings: list[Finding] = []
+    for target in extract_out_links(concept_id_from_path(rel), body):
+        if target not in existing:
+            findings.append(
+                Finding(
+                    rule=Rule.BROKEN_LINK,
+                    severity=Severity.WARNING,
+                    path=rel,
+                    message=f"cross-link to '{target}.md' has no target in the bundle",
+                )
+            )
+    return findings
 
 
 def _check_concept(rel: str, text: str) -> list[Finding]:
