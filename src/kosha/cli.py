@@ -28,7 +28,8 @@ from kosha.bench import (
     render_table,
     run_benchmark,
 )
-from kosha.eval import evaluate_extractor
+from kosha.dedup import LexicalAdjudicator
+from kosha.eval import evaluate_dedup, evaluate_duplicate_rate, evaluate_extractor
 from kosha.okf import load_bundle
 from kosha.providers import resolve_embedding_provider, resolve_generation_provider
 from kosha.validate import validate_bundle
@@ -90,6 +91,22 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=_GRANULARITY_LABELS,
         help="Granularity seed labels (default: labels/granularity_seed.jsonl).",
+    )
+    dedup_eval_parser = eval_subparsers.add_parser(
+        "dedup",
+        help="Score the dedup resolver: precision/recall + duplicate rate.",
+    )
+    dedup_eval_parser.add_argument(
+        "--labels",
+        type=Path,
+        default=_DEDUP_LABELS,
+        help="Dedup seed pairs (default: labels/dedup_seed.jsonl).",
+    )
+    dedup_eval_parser.add_argument(
+        "--bundle",
+        type=Path,
+        default=_DEFAULT_BUNDLE,
+        help="Repeated-ingest bundle for duplicate rate (default: bundles/northwind).",
     )
     return parser
 
@@ -165,7 +182,9 @@ def _run_eval(args: argparse.Namespace) -> int:
     """Dispatch ``kosha eval <suite>``."""
     if args.eval_command == "extract":
         return _run_eval_extract(args.labels)
-    print("kosha: usage: kosha eval extract [--labels PATH]", file=sys.stderr)
+    if args.eval_command == "dedup":
+        return _run_eval_dedup(args.labels, args.bundle)
+    print("kosha: usage: kosha eval {extract,dedup} [...]", file=sys.stderr)
     return 2
 
 
@@ -181,6 +200,37 @@ def _run_eval_extract(labels_path: Path) -> int:
         f"({report.label_count} labels, gen={provider.name})"
     )
     print(f"boundary accuracy: {report.score:.3f} ({report.correct}/{report.label_count})")
+    return 0
+
+
+def _run_eval_dedup(labels_path: Path, bundle_path: Path) -> int:
+    """Score the dedup resolver: pair precision/recall + repeated-ingest duplicate rate."""
+    if not labels_path.is_file():
+        print(f"kosha: labels file not found: {labels_path}", file=sys.stderr)
+        return 2
+    if not bundle_path.is_dir():
+        print(f"kosha: not a bundle directory: {bundle_path}", file=sys.stderr)
+        return 2
+    embedding_provider = resolve_embedding_provider()
+    adjudicator = LexicalAdjudicator()
+    report = evaluate_dedup(
+        load_dedup_pairs(labels_path), embedding_provider, adjudicator=adjudicator
+    )
+    duplicates = evaluate_duplicate_rate(
+        load_bundle(bundle_path), embedding_provider, adjudicator=adjudicator
+    )
+    print(
+        f"Dedup eval over {labels_path} "
+        f"({report.pair_count} pairs, embed={embedding_provider.name}, adj={adjudicator.name})"
+    )
+    print(
+        f"precision: {report.precision:.3f}  recall: {report.recall:.3f}  "
+        f"accuracy: {report.accuracy:.3f}"
+    )
+    print(
+        f"duplicate-rate: {duplicates.duplicate_rate:.3f} "
+        f"({duplicates.created} created / {duplicates.concept_count} concepts on repeated ingest)"
+    )
     return 0
 
 
