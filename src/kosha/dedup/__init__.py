@@ -18,6 +18,7 @@ from kosha.dedup.adjudicate import (
     build_adjudication_prompt,
     parse_verdict,
 )
+from kosha.dedup.audit import DecisionRecord, record_decisions, render_decision_log
 from kosha.dedup.candidates import draft_query_text, nearest_candidates
 from kosha.dedup.decision import (
     DEFAULT_THRESHOLDS,
@@ -36,6 +37,7 @@ __all__ = [
     "Adjudication",
     "Adjudicator",
     "Decision",
+    "DecisionRecord",
     "GenerationAdjudicator",
     "LexicalAdjudicator",
     "Route",
@@ -48,6 +50,8 @@ __all__ = [
     "make_splitter",
     "nearest_candidates",
     "parse_verdict",
+    "record_decisions",
+    "render_decision_log",
     "resolve_draft",
     "route_candidates",
     "split_draft",
