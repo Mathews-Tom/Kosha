@@ -9,6 +9,15 @@ and a rationale so the path is auditable (overview §6).
 
 from __future__ import annotations
 
+from kosha.dedup.adjudicate import (
+    Adjudication,
+    Adjudicator,
+    GenerationAdjudicator,
+    LexicalAdjudicator,
+    Verdict,
+    build_adjudication_prompt,
+    parse_verdict,
+)
 from kosha.dedup.candidates import draft_query_text, nearest_candidates
 from kosha.dedup.decision import (
     DEFAULT_THRESHOLDS,
@@ -18,14 +27,24 @@ from kosha.dedup.decision import (
     Thresholds,
     route_candidates,
 )
+from kosha.dedup.resolver import Decision, resolve_draft
 
 __all__ = [
     "DEFAULT_THRESHOLDS",
     "Action",
+    "Adjudication",
+    "Adjudicator",
+    "Decision",
+    "GenerationAdjudicator",
+    "LexicalAdjudicator",
     "Route",
     "Routing",
     "Thresholds",
+    "Verdict",
+    "build_adjudication_prompt",
     "draft_query_text",
     "nearest_candidates",
+    "parse_verdict",
+    "resolve_draft",
     "route_candidates",
 ]
