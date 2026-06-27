@@ -17,8 +17,8 @@ Token and quality figures are deterministic (fixed corpus, fixed queries, determ
 
 | Strategy | Avg context tokens | Avg total tokens | Retrieval+gen round-trips | Avg latency (ms) | Concept recall | Answer-keyword recall |
 |---|---|---|---|---|---|---|
-| hybrid | 470 | 602 | 2 | 0.29 | 1.00 | 0.88 |
-| rag | 400 | 541 | 2 | 0.44 | 0.62 | 0.62 |
+| hybrid | 470 | 602 | 2 | 0.31 | 1.00 | 0.88 |
+| rag | 400 | 541 | 2 | 0.43 | 0.62 | 0.62 |
 | long_context | 972 | 1131 | 1 | 0.29 | 1.00 | 0.75 |
 
 Strategy roles: **hybrid** and the embedding index are production-grade and reused downstream; **rag** and **long_context** are benchmark-only baselines.
@@ -35,7 +35,7 @@ long-context concept recall 1.00 vs hybrid 1.00; long-context costs 1.88x hybrid
 
 _Is hybrid within a usable latency margin of one RAG hop?_
 
-hybrid 2 retrieval+gen round-trips vs RAG 2; hybrid latency 0.29ms vs RAG 0.44ms (0.66x, margin 2.0x). Round-trip parity is deterministic; wall-clock is a local-compute proxy and should be re-confirmed against a network provider.
+hybrid 2 retrieval+gen round-trips vs RAG 2; hybrid latency 0.31ms vs RAG 0.43ms (0.71x, margin 2.0x). The verdict uses the deterministic round-trip comparison; wall-clock is a local-compute proxy that only contributes above 5ms (re-confirm against a network provider).
 
 ### KS3-dedup-by-prompt — PASS — premise holds
 

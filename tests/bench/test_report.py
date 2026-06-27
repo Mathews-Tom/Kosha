@@ -8,7 +8,9 @@ from kosha.bench import (
     DedupSignal,
     GranularitySignal,
     evaluate_kill_signals,
+    evaluate_threshold_only,
     go_no_go,
+    load_dedup_pairs,
     render_premise_report,
     run_benchmark,
 )
@@ -17,6 +19,7 @@ from kosha.okf import load_bundle
 from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
 
 NORTHWIND = Path(__file__).resolve().parents[2] / "bundles" / "northwind"
+DEDUP_LABELS = Path(__file__).resolve().parents[2] / "labels" / "dedup_seed.jsonl"
 
 
 def _result(
@@ -117,6 +120,21 @@ def test_ks2_fires_when_hybrid_costs_more_round_trips() -> None:
     assert _by_id(parity, _dedup(0.7, 5), "KS2-traversal-latency") is False
 
 
+def test_ks2_latency_only_counts_above_the_noise_floor() -> None:
+    base = {
+        "hybrid_tokens": 600,
+        "long_tokens": 1800,
+        "hybrid_recall": 1.0,
+        "long_recall": 1.0,
+    }
+    # Above the floor, a >2x wall-clock ratio fires even at round-trip parity.
+    network = _report(**base, hybrid_latency=30.0, rag_latency=10.0)
+    assert _by_id(network, _dedup(0.7, 5), "KS2-traversal-latency") is True
+    # Sub-floor latency is noise: a huge ratio does not fire at round-trip parity.
+    offline = _report(**base, hybrid_latency=10.0, rag_latency=1.0)
+    assert _by_id(offline, _dedup(0.7, 5), "KS2-traversal-latency") is False
+
+
 def test_ks3_fires_when_threshold_only_closes_the_gap() -> None:
     report = _report(hybrid_tokens=600, long_tokens=1800, hybrid_recall=1.0, long_recall=1.0)
     assert _by_id(report, _dedup(0.98, 0), "KS3-dedup-by-prompt") is True
@@ -155,6 +173,16 @@ def test_real_northwind_run_passes_every_kill_signal() -> None:
         bundle, LexicalEmbeddingProvider(), ExtractiveGenerationProvider()
     )
     # Real seed dedup signal: lexical thresholding cannot separate the labeled set.
-    dedup = _dedup(0.75, 6)
+    dedup = evaluate_threshold_only(
+        load_dedup_pairs(DEDUP_LABELS), LexicalEmbeddingProvider()
+    )
     signals = evaluate_kill_signals(report, dedup)
+    fired = {s.id: s.fired for s in signals}
+    # Deterministic gate: token-cost (KS1), round-trip parity (KS2, below the
+    # latency noise floor), and the real dedup ambiguous band (KS3) all hold.
+    assert fired == {
+        "KS1-long-context": False,
+        "KS2-traversal-latency": False,
+        "KS3-dedup-by-prompt": False,
+    }
     assert go_no_go(signals) == "GO"

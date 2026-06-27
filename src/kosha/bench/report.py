@@ -28,6 +28,9 @@ from kosha.bench.runner import STRATEGY_ORDER, BenchReport, render_table
 COST_MARGIN = 1.5
 # Hybrid latency within this multiple of RAG's is a "usable margin".
 LATENCY_MARGIN = 2.0
+# Below this RAG latency the wall-clock signal is treated as local-compute noise,
+# so the latency verdict falls back to the deterministic round-trip comparison.
+LATENCY_NOISE_FLOOR_MS = 5.0
 # Threshold-only dedup accuracy at or above this retires the loop's adjudication.
 DEDUP_BAR = 0.95
 
@@ -56,7 +59,10 @@ def evaluate_kill_signals(report: BenchReport, dedup: DedupSignal) -> list[KillS
 
     latency_ratio = _ratio(hybrid.avg_latency_ms, rag.avg_latency_ms)
     more_round_trips = hybrid.avg_round_trips > rag.avg_round_trips
-    ks2_fired = more_round_trips or latency_ratio > LATENCY_MARGIN
+    # Wall-clock only contributes above the noise floor (i.e. a network provider);
+    # below it the deterministic round-trip comparison decides.
+    latency_meaningful = rag.avg_latency_ms >= LATENCY_NOISE_FLOOR_MS
+    ks2_fired = more_round_trips or (latency_meaningful and latency_ratio > LATENCY_MARGIN)
 
     ks3_fired = dedup.best_accuracy >= DEDUP_BAR and dedup.ambiguous_errors == 0
 
@@ -85,9 +91,10 @@ def evaluate_kill_signals(report: BenchReport, dedup: DedupSignal) -> list[KillS
                 f"hybrid {hybrid.avg_round_trips:.0f} retrieval+gen round-trips vs "
                 f"RAG {rag.avg_round_trips:.0f}; hybrid latency "
                 f"{hybrid.avg_latency_ms:.2f}ms vs RAG {rag.avg_latency_ms:.2f}ms "
-                f"({latency_ratio:.2f}x, margin {LATENCY_MARGIN}x). Round-trip parity is "
-                "deterministic; wall-clock is a local-compute proxy and should be "
-                "re-confirmed against a network provider."
+                f"({latency_ratio:.2f}x, margin {LATENCY_MARGIN}x). The verdict uses the "
+                "deterministic round-trip comparison; wall-clock is a local-compute "
+                f"proxy that only contributes above {LATENCY_NOISE_FLOOR_MS:.0f}ms "
+                "(re-confirm against a network provider)."
             ),
         ),
         KillSignal(
