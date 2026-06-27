@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from kosha.okf.errors import FrontmatterError, OKFError, WikilinkError
-from kosha.okf.parse import concept_id_from_path, parse_concept, parse_frontmatter
+from kosha.okf.parse import (
+    concept_id_from_path,
+    load_raw_frontmatter,
+    parse_concept,
+    parse_frontmatter,
+)
 from kosha.okf.serialize import (
     render_citations,
     serialize_concept,
@@ -16,6 +21,7 @@ __all__ = [
     "OKFError",
     "WikilinkError",
     "concept_id_from_path",
+    "load_raw_frontmatter",
     "parse_concept",
     "parse_frontmatter",
     "render_citations",

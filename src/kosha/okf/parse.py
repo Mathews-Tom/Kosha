@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from pathlib import PurePosixPath
+from typing import Any
 
 import yaml
 from pydantic import ValidationError
@@ -44,11 +45,21 @@ def concept_id_from_path(rel_path: str) -> str:
     return pure.with_suffix("").as_posix()
 
 
-def parse_frontmatter(text: str) -> tuple[Frontmatter, str]:
-    """Split a concept document into typed frontmatter and a verbatim body."""
+def load_raw_frontmatter(text: str) -> tuple[dict[str, Any] | None, str]:
+    """Split a document into its raw frontmatter mapping and verbatim body.
+
+    Returns ``(None, text)`` when no ``---`` frontmatter block is present, and
+    ``(mapping, body)`` when one is — where ``mapping`` is the untyped YAML
+    mapping (``{}`` for an empty block). Raises :class:`FrontmatterError` only
+    when a block is present but its YAML is unparseable or is not a mapping.
+
+    This is the low-level splitter the conformance validator uses to tell a
+    missing frontmatter block (rule 1) apart from a present block missing a
+    ``type`` (rule 2); :func:`parse_frontmatter` layers typed validation on top.
+    """
     match = _FRONTMATTER.match(text)
     if match is None:
-        raise FrontmatterError("document has no parseable frontmatter block")
+        return None, text
     try:
         raw = yaml.safe_load(match.group("fm"))
     except yaml.YAMLError as exc:
@@ -57,9 +68,16 @@ def parse_frontmatter(text: str) -> tuple[Frontmatter, str]:
         raw = {}
     if not isinstance(raw, dict):
         raise FrontmatterError("frontmatter must be a YAML mapping")
-    body = match.group("body") or ""
+    return raw, match.group("body") or ""
+
+
+def parse_frontmatter(text: str) -> tuple[Frontmatter, str]:
+    """Split a concept document into typed frontmatter and a verbatim body."""
+    mapping, body = load_raw_frontmatter(text)
+    if mapping is None:
+        raise FrontmatterError("document has no parseable frontmatter block")
     try:
-        frontmatter = Frontmatter(**raw)
+        frontmatter = Frontmatter(**mapping)
     except ValidationError as exc:
         raise FrontmatterError(f"frontmatter failed validation: {exc}") from exc
     return frontmatter, body
