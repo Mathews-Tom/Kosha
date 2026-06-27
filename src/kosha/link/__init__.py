@@ -8,6 +8,17 @@ concepts), inserts them, and computes reverse-edge backlinks.
 
 from __future__ import annotations
 
+from kosha.link.edits import (
+    BACKLINKS_HEADING,
+    RELATED_HEADING,
+    apply_links,
+    changed_concept_ids,
+    compute_backlinks,
+    crosslink,
+    forward_targets,
+    strip_managed_sections,
+    write_concepts,
+)
 from kosha.link.paths import (
     ResolvedLink,
     bundle_relative_link,
@@ -26,16 +37,25 @@ from kosha.link.relate import (
 )
 
 __all__ = [
+    "BACKLINKS_HEADING",
+    "RELATED_HEADING",
     "GenerationRelator",
     "LexicalRelator",
     "Relation",
     "Relator",
     "ResolvedLink",
+    "apply_links",
     "build_relate_prompt",
     "bundle_relative_link",
+    "changed_concept_ids",
     "classify_link",
+    "compute_backlinks",
+    "crosslink",
     "dangling_links",
     "discover_relations",
+    "forward_targets",
     "is_bundle_relative",
     "parse_relations",
+    "strip_managed_sections",
+    "write_concepts",
 ]
