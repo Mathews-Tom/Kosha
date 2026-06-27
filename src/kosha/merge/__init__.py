@@ -23,6 +23,13 @@ from kosha.merge.create import (
     source_citation,
     write_concept,
 )
+from kosha.merge.reconstruct import (
+    EditDriftError,
+    assert_no_drift,
+    is_reconstructable,
+    reconstruct_from_sources,
+    ungrounded_claims,
+)
 from kosha.merge.update import (
     ClaimTargeter,
     GenerationClaimTargeter,
@@ -34,20 +41,25 @@ from kosha.merge.update import (
 
 __all__ = [
     "ClaimTargeter",
+    "EditDriftError",
     "GenerationClaimTargeter",
     "LexicalClaimTargeter",
     "apply_decision",
+    "assert_no_drift",
     "build_targeting_prompt",
     "claims_from_draft",
     "create_concept",
     "current_claims",
+    "is_reconstructable",
     "make_claim",
     "merge_update",
     "mint_claim_id",
     "parse_target",
+    "reconstruct_from_sources",
     "render_body",
     "segment_statements",
     "source_citation",
     "supersede_claim",
+    "ungrounded_claims",
     "write_concept",
 ]
