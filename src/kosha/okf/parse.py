@@ -29,7 +29,7 @@ _FRONTMATTER = re.compile(
 )
 
 # Inline markdown link: ``[text](target)``. Targets are filtered to in-bundle
-# ``.md`` paths in :func:`_extract_out_links`.
+# ``.md`` paths in :func:`extract_out_links`.
 _MD_LINK = re.compile(r"\[[^\]]*\]\((?P<target>[^)]+)\)")
 
 
@@ -87,7 +87,7 @@ def parse_concept(rel_path: str, text: str) -> Concept:
     """Parse a concept document at ``rel_path`` into a :class:`Concept`."""
     concept_id = concept_id_from_path(rel_path)
     frontmatter, body = parse_frontmatter(text)
-    out_links = _extract_out_links(concept_id, body)
+    out_links = extract_out_links(concept_id, body)
     return Concept(
         concept_id=concept_id,
         frontmatter=frontmatter,
@@ -96,7 +96,7 @@ def parse_concept(rel_path: str, text: str) -> Concept:
     )
 
 
-def _extract_out_links(concept_id: str, body: str) -> list[str]:
+def extract_out_links(concept_id: str, body: str) -> list[str]:
     """Collect in-bundle concept ids the body links to, in first-seen order.
 
     Bundle-relative (``/a/b.md``) and relative (``./b.md``, ``../c.md``) markdown
