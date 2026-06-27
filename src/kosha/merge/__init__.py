@@ -15,11 +15,23 @@ from kosha.merge.claims import (
     render_body,
     supersede_claim,
 )
+from kosha.merge.create import (
+    claims_from_draft,
+    create_concept,
+    segment_statements,
+    source_citation,
+    write_concept,
+)
 
 __all__ = [
+    "claims_from_draft",
+    "create_concept",
     "current_claims",
     "make_claim",
     "mint_claim_id",
     "render_body",
+    "segment_statements",
+    "source_citation",
     "supersede_claim",
+    "write_concept",
 ]
