@@ -1,0 +1,8 @@
+{"text": "# Standard Return Window\nCustomers may return unworn items within 30 days of delivery for a full refund.", "label": "atomic", "note": "single policy"}
+{"text": "# Gold Member Returns\nGold tier members have 45 days from delivery to return an item.", "label": "atomic", "note": "single policy"}
+{"text": "# Refund Processing\nApproved refunds are issued to the original payment method within 5-7 business days.", "label": "atomic", "note": "single policy"}
+{"text": "# Membership Tier\nEach customer holds one tier: Standard, Silver, or Gold, with escalating perks.", "label": "atomic", "note": "single entity"}
+{"text": "# Returns\nText.\n# Shipping\nText.\n# Refunds\nText.\n# Exchanges\nText.\n# Membership\nText.\n# Orders\nText.\n# Channels\nText.\n# Escalation\nText.\n# Glossary\nText.", "label": "overscoped", "note": "nine distinct topics in one doc"}
+{"text": "# Return policy\nText.\n# Shipping policy\nText.\n# Refund policy\nText.\n# Exchange policy\nText.\n# Warranty policy\nText.\n# Membership program\nText.\n# Order lifecycle\nText.\n# Support channels\nText.\n# Escalation rules\nText.\n# Glossary terms\nText.", "label": "overscoped", "note": "ten distinct policies bundled"}
+{"text": "# Customer\nText.\n# Order\nText.\n# Membership tier\nText.\n# Address\nText.\n# Payment method\nText.\n# Cart\nText.\n# Wishlist\nText.\n# Review\nText.\n# Coupon\nText.", "label": "overscoped", "note": "nine distinct entities in one doc"}
+{"text": "# Handle a return\nText.\n# Escalate a complaint\nText.\n# Process a refund\nText.\n# Issue an exchange\nText.\n# Cancel an order\nText.\n# Update an address\nText.\n# Apply a coupon\nText.\n# Close a ticket\nText.\n# Open a ticket\nText.", "label": "overscoped", "note": "nine distinct playbooks bundled"}
