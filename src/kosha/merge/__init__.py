@@ -8,6 +8,7 @@ a deterministic projection of the current claims (:func:`render_body`).
 
 from __future__ import annotations
 
+from kosha.merge.apply import apply_decision
 from kosha.merge.claims import (
     current_claims,
     make_claim,
@@ -22,13 +23,28 @@ from kosha.merge.create import (
     source_citation,
     write_concept,
 )
+from kosha.merge.update import (
+    ClaimTargeter,
+    GenerationClaimTargeter,
+    LexicalClaimTargeter,
+    build_targeting_prompt,
+    merge_update,
+    parse_target,
+)
 
 __all__ = [
+    "ClaimTargeter",
+    "GenerationClaimTargeter",
+    "LexicalClaimTargeter",
+    "apply_decision",
+    "build_targeting_prompt",
     "claims_from_draft",
     "create_concept",
     "current_claims",
     "make_claim",
+    "merge_update",
     "mint_claim_id",
+    "parse_target",
     "render_body",
     "segment_statements",
     "source_citation",
