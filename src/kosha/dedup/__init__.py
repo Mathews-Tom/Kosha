@@ -10,8 +10,22 @@ and a rationale so the path is auditable (overview §6).
 from __future__ import annotations
 
 from kosha.dedup.candidates import draft_query_text, nearest_candidates
+from kosha.dedup.decision import (
+    DEFAULT_THRESHOLDS,
+    Action,
+    Route,
+    Routing,
+    Thresholds,
+    route_candidates,
+)
 
 __all__ = [
+    "DEFAULT_THRESHOLDS",
+    "Action",
+    "Route",
+    "Routing",
+    "Thresholds",
     "draft_query_text",
     "nearest_candidates",
+    "route_candidates",
 ]
