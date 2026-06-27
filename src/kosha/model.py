@@ -16,6 +16,9 @@ Design constraints encoded here:
 * The on-disk artifact stays plain OKF markdown. ``Claim`` is an internal
   provenance index used by the merge/writer milestone; it is not serialized as a
   separate structure.
+* ``Source`` / ``RawDoc`` are the ingest-layer boundary: an adapter normalizes a
+  URL or local Markdown file into a ``RawDoc`` (text + ``Source`` provenance),
+  and the extractor reads ``RawDoc`` to propose concepts.
 """
 
 from __future__ import annotations
@@ -32,6 +35,13 @@ class ClaimStatus(StrEnum):
     CURRENT = "current"
     SUPERSEDED = "superseded"
     CONTRADICTED = "contradicted"
+
+
+class SourceKind(StrEnum):
+    """Origin kind of ingested material (system_design §8.1 build cut)."""
+
+    URL = "url"
+    MARKDOWN = "markdown"
 
 
 class Frontmatter(BaseModel):
@@ -112,3 +122,32 @@ class Bundle(BaseModel):
     okf_version: str = "0.1"
     git_remote: str | None = None
     concepts: dict[str, Concept] = Field(default_factory=dict)
+
+
+class Source(BaseModel):
+    """Provenance of ingested material.
+
+    ``authority_rank`` is the source-authority input the contradiction-resolution
+    policy (M9) uses to break ties: higher wins. ``source_id`` is the stable
+    provenance key stamped on every :class:`Claim` later derived from this source.
+    """
+
+    source_id: str
+    kind: SourceKind
+    location: str
+    title: str | None = None
+    authority_rank: int = 0
+    retrieved_at: datetime | None = None
+
+
+class RawDoc(BaseModel):
+    """Normalized text pulled from a :class:`Source` — the deterministic ingest output.
+
+    Ingest adapters realize ``fetch(source) -> RawDoc`` (system_design §2.2):
+    they pull a URL or local Markdown file and normalize it to plain text plus
+    source metadata. The concept extractor segments ``text`` into candidate
+    concepts; nothing downstream re-fetches the original source.
+    """
+
+    source: Source
+    text: str
