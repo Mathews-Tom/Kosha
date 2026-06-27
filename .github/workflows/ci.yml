@@ -31,3 +31,6 @@ jobs:
 
       - name: Test (pytest)
         run: uv run pytest -q
+
+      - name: Conformance gate (kosha validate)
+        run: uv run kosha validate tests/fixtures/good_bundle
