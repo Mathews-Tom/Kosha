@@ -28,6 +28,7 @@ from kosha.bench import (
     render_table,
     run_benchmark,
 )
+from kosha.eval import evaluate_extractor
 from kosha.okf import load_bundle
 from kosha.providers import resolve_embedding_provider, resolve_generation_provider
 from kosha.validate import validate_bundle
@@ -75,6 +76,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write the benchmark report to this path.",
     )
+    eval_parser = subparsers.add_parser(
+        "eval",
+        help="Run an LLM-surface eval suite.",
+    )
+    eval_subparsers = eval_parser.add_subparsers(dest="eval_command")
+    extract_eval_parser = eval_subparsers.add_parser(
+        "extract",
+        help="Score the concept extractor against seed granularity labels.",
+    )
+    extract_eval_parser.add_argument(
+        "--labels",
+        type=Path,
+        default=_GRANULARITY_LABELS,
+        help="Granularity seed labels (default: labels/granularity_seed.jsonl).",
+    )
     return parser
 
 
@@ -86,6 +102,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_validate(args.bundle)
     if args.command == "bench":
         return _run_bench(args.bundle, args.report)
+    if args.command == "eval":
+        return _run_eval(args)
     parser.print_help()
     return 0
 
@@ -140,6 +158,29 @@ def _run_bench(bundle_path: Path, report_path: Path | None) -> int:
         )
         report_path.write_text(document, encoding="utf-8")
         print(f"Wrote report to {report_path}")
+    return 0
+
+
+def _run_eval(args: argparse.Namespace) -> int:
+    """Dispatch ``kosha eval <suite>``."""
+    if args.eval_command == "extract":
+        return _run_eval_extract(args.labels)
+    print("kosha: usage: kosha eval extract [--labels PATH]", file=sys.stderr)
+    return 2
+
+
+def _run_eval_extract(labels_path: Path) -> int:
+    """Score the concept extractor against the seed granularity labels."""
+    if not labels_path.is_file():
+        print(f"kosha: labels file not found: {labels_path}", file=sys.stderr)
+        return 2
+    provider = resolve_generation_provider()
+    report = evaluate_extractor(load_granularity_labels(labels_path), provider)
+    print(
+        f"Extractor eval over {labels_path} "
+        f"({report.label_count} labels, gen={provider.name})"
+    )
+    print(f"boundary accuracy: {report.score:.3f} ({report.correct}/{report.label_count})")
     return 0
 
 
