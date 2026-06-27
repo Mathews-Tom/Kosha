@@ -11,6 +11,15 @@ downstream; the RAG and long-context strategies are benchmark-only baselines.
 
 from __future__ import annotations
 
+from kosha.bench.grade import QueryGrade, grade_query
+from kosha.bench.queries import NORTHWIND_QUERIES, BenchQuery
+from kosha.bench.runner import (
+    STRATEGY_ORDER,
+    BenchReport,
+    StrategyResult,
+    render_table,
+    run_benchmark,
+)
 from kosha.bench.strategies import (
     HybridStrategy,
     LongContextStrategy,
@@ -20,9 +29,18 @@ from kosha.bench.strategies import (
 )
 
 __all__ = [
+    "NORTHWIND_QUERIES",
+    "STRATEGY_ORDER",
+    "BenchQuery",
+    "BenchReport",
     "HybridStrategy",
     "LongContextStrategy",
+    "QueryGrade",
     "RagStrategy",
     "RetrievalStrategy",
     "RetrievedContext",
+    "StrategyResult",
+    "grade_query",
+    "render_table",
+    "run_benchmark",
 ]
