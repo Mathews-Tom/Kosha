@@ -25,6 +25,13 @@ from kosha.contradiction.detect import (
     parse_verdict,
     structured_diff,
 )
+from kosha.contradiction.escalate import (
+    Escalation,
+    Reconciliation,
+    SilentOverwriteError,
+    assert_no_silent_overwrite,
+    reconcile,
+)
 from kosha.contradiction.policy import (
     Resolution,
     ResolutionOutcome,
@@ -38,18 +45,23 @@ __all__ = [
     "ContradictionJudge",
     "ContradictionVerdict",
     "DiffSignal",
+    "Escalation",
     "GenerationContradictionJudge",
     "Judgment",
     "LexicalContradictionJudge",
+    "Reconciliation",
     "Resolution",
     "ResolutionOutcome",
+    "SilentOverwriteError",
     "Winner",
+    "assert_no_silent_overwrite",
     "build_contradiction_prompt",
     "detect_conflict",
     "effective_claims",
     "find_conflict",
     "in_force",
     "parse_verdict",
+    "reconcile",
     "resolve_conflict",
     "structured_diff",
 ]
