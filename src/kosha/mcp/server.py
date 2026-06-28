@@ -20,16 +20,18 @@ from mcp.server.fastmcp import FastMCP
 
 from kosha.mcp.service import (
     ConceptView,
+    FindView,
     FrontmatterView,
     IndexView,
     KoshaKnowledgeService,
+    LinksView,
 )
 
 _INSTRUCTIONS = (
     "Answer from this OKF bundle by traversal, never by guessing or grepping. "
-    "Read list_index to see a directory's contents, read_frontmatter to peek at a "
-    "concept, then load_concept only for the concepts you actually need. These "
-    "traversal tools are the only way to read the knowledge base."
+    "Jump with find_concepts to land near the answer, read_frontmatter to peek, "
+    "load_concept only for the concepts you need, and follow_links to expand. "
+    "These traversal tools are the only way to read the knowledge base."
 )
 
 
@@ -71,6 +73,25 @@ def build_server(
         read_frontmatter says it is relevant.
         """
         return service.load_concept(concept_id, asof=asof)
+
+    @server.tool()
+    def find_concepts(query: str, k: int = 3) -> FindView:
+        """Jump to the concepts most relevant to a question (embedding search).
+
+        Returns ranked concept ids with descriptions — not bodies. Start here, then
+        read_frontmatter and load_concept the candidates worth reading. This is a
+        jump near the answer, not a raw-text search of the corpus.
+        """
+        return service.find_concepts(query, k)
+
+    @server.tool()
+    def follow_links(concept_id: str) -> LinksView:
+        """List a concept's links and backlinks so you can traverse the graph.
+
+        Use it to expand from a loaded concept to its related concepts; load only
+        the neighbors you actually need.
+        """
+        return service.follow_links(concept_id)
 
     return server
 
