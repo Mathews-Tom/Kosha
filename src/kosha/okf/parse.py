@@ -96,6 +96,28 @@ def parse_concept(rel_path: str, text: str) -> Concept:
     )
 
 
+def resolve_link_target(source_concept_id: str, target: str) -> str | None:
+    """Resolve one Markdown link target to a bundle concept id, or ``None``.
+
+    Bundle-relative (``/a/b.md``) and relative (``./b.md``, ``../c.md``) ``.md``
+    targets resolve to concept ids; an empty target, an external URL, a
+    ``mailto:`` link, a non-``.md`` target, or a path that climbs above the
+    bundle root returns ``None``. A trailing ``#anchor`` is stripped first.
+    """
+    cleaned = target.strip().split("#", 1)[0]
+    if not cleaned or "://" in cleaned or cleaned.startswith("mailto:"):
+        return None
+    if not cleaned.endswith(".md"):
+        return None
+    base = PurePosixPath(source_concept_id).parent
+    resolved = (
+        PurePosixPath(cleaned.lstrip("/"))
+        if cleaned.startswith("/")
+        else base / cleaned
+    )
+    return _normalize(resolved.with_suffix(""))
+
+
 def extract_out_links(concept_id: str, body: str) -> list[str]:
     """Collect in-bundle concept ids the body links to, in first-seen order.
 
@@ -103,20 +125,9 @@ def extract_out_links(concept_id: str, body: str) -> list[str]:
     links to ``.md`` targets are resolved to concept ids; external URLs, anchors,
     non-``.md`` targets, and links that climb above the bundle root are ignored.
     """
-    base = PurePosixPath(concept_id).parent
     out_links: list[str] = []
     for match in _MD_LINK.finditer(body):
-        target = match.group("target").strip().split("#", 1)[0]
-        if not target or "://" in target or target.startswith("mailto:"):
-            continue
-        if not target.endswith(".md"):
-            continue
-        resolved = (
-            PurePosixPath(target.lstrip("/"))
-            if target.startswith("/")
-            else base / target
-        )
-        cid = _normalize(resolved.with_suffix(""))
+        cid = resolve_link_target(concept_id, match.group("target"))
         if cid and cid not in out_links:
             out_links.append(cid)
     return out_links
