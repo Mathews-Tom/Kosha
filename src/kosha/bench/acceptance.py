@@ -26,12 +26,35 @@ noise floor — the same discipline as the premise report's KS2 signal.
 
 from __future__ import annotations
 
+import tempfile
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from kosha.bench.report import LATENCY_MARGIN, LATENCY_NOISE_FLOOR_MS
 from kosha.bench.runner import BenchReport, StrategyResult, run_benchmark
-from kosha.model import Bundle
+from kosha.dedup import LexicalAdjudicator
+from kosha.eval.dedup import DuplicateRateReport, evaluate_duplicate_rate
+from kosha.extract import ConceptDraft
+from kosha.merge import (
+    EditDriftError,
+    LexicalClaimTargeter,
+    assert_no_drift,
+    create_concept,
+    current_claims,
+    is_reconstructable,
+    merge_update,
+    write_concept,
+)
+from kosha.model import Bundle, Source, SourceKind
 from kosha.providers.base import EmbeddingProvider, GenerationProvider
+from kosha.validate import validate_bundle
+
+# Repeated-ingest duplicate rate must be exactly zero: every concept that already
+# exists must UPDATE, never spawn a CREATE (system_design §8.1 "near-zero").
+DUPLICATE_RATE_BAR = 0.0
+# Fidelity is the §8.1 / M7 edit-drift bar: held across at least this many ingests.
+FIDELITY_INGESTS = 20
 
 
 @dataclass(frozen=True)
@@ -118,6 +141,159 @@ def token_latency_criterion(bench: BenchReport) -> AcceptanceCriterion:
     )
 
 
+def duplicate_rate_criterion(duplicates: DuplicateRateReport) -> AcceptanceCriterion:
+    """Gate near-zero duplicates after re-ingesting an existing corpus (M6 contract).
+
+    Re-ingesting concepts that already exist must resolve to UPDATE, never CREATE;
+    any CREATE is a duplicate the dedup resolver failed to catch.
+    """
+    passed = duplicates.duplicate_rate <= DUPLICATE_RATE_BAR
+    return AcceptanceCriterion(
+        id="C2-duplicate-rate",
+        name="Duplicate-rate ~= 0 after repeated ingests",
+        passed=passed,
+        target=f"duplicate-rate <= {DUPLICATE_RATE_BAR:.2f} on a re-ingest of the corpus",
+        evidence=(
+            f"re-ingesting {duplicates.concept_count} existing concepts: "
+            f"{duplicates.created} CREATE / {duplicates.updated} UPDATE; "
+            f"duplicate-rate {duplicates.duplicate_rate:.3f}."
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class FidelityReport:
+    """Outcome of driving one concept through many sequential supersede ingests."""
+
+    ingests: int
+    drift_free: bool
+    reconstructable: bool
+    survivor_intact: bool
+    conformant: bool
+    latest_reflected: bool
+
+    @property
+    def ok(self) -> bool:
+        """Whether fidelity held across at least the required number of ingests."""
+        return (
+            self.ingests >= FIDELITY_INGESTS
+            and self.drift_free
+            and self.reconstructable
+            and self.survivor_intact
+            and self.conformant
+            and self.latest_reflected
+        )
+
+
+def measure_fidelity(
+    work_dir: Path | None = None, *, ingests: int = FIDELITY_INGESTS
+) -> FidelityReport:
+    """Supersede one claim ``ingests`` times; verify no edit-drift the whole way.
+
+    Mirrors the M7 fidelity acceptance: because the body is a deterministic
+    projection of provenance-bearing claims, repeatedly superseding the returns
+    claim must leave an unrelated claim byte-identical, never drift the body from
+    its sources, and keep the written file OKF-conformant at every step. The
+    conformance check needs a directory to write into; when ``work_dir`` is None a
+    throwaway temp directory is used so callers need not manage scratch state.
+    """
+    if work_dir is None:
+        with tempfile.TemporaryDirectory() as scratch:
+            return _run_fidelity(Path(scratch), ingests)
+    return _run_fidelity(work_dir / "fidelity", ingests)
+
+
+def _run_fidelity(root: Path, ingests: int) -> FidelityReport:
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    gold = "Gold members receive free return shipping."
+    targeter = LexicalClaimTargeter()
+
+    def returns_statement(days: int) -> str:
+        return f"Standard returns are accepted within {days} days of delivery."
+
+    def source(source_id: str) -> Source:
+        return Source(
+            source_id=source_id, kind=SourceKind.MARKDOWN, location=f"file://{source_id}.md"
+        )
+
+    seed = ConceptDraft(
+        title="Returns",
+        body=f"{returns_statement(30)}\n\n{gold}",
+        description="How returns are handled.",
+        type="policy",
+        source_id="s0",
+    )
+    concept = create_concept(seed, "policies/returns", source("s0"), start)
+    sources: dict[str, str] = {"s0": f"{returns_statement(30)}\n{gold}"}
+    gold_claim = next(c for c in concept.claims if c.statement == gold)
+
+    drift_free = reconstructable = survivor_intact = conformant = True
+    for i in range(1, ingests + 1):
+        statement = returns_statement(30 + i)
+        source_id = f"s{i}"
+        draft = ConceptDraft(
+            title="Returns",
+            body=statement,
+            description="How returns are handled.",
+            type="policy",
+            source_id=source_id,
+        )
+        concept = merge_update(
+            concept, draft, source(source_id), start + timedelta(days=i), targeter=targeter
+        )
+        sources[source_id] = statement
+        try:
+            assert_no_drift(concept)
+        except EditDriftError:
+            drift_free = False
+        if not is_reconstructable(concept, sources):
+            reconstructable = False
+        survivor = next(
+            (c for c in current_claims(concept.claims) if c.claim_id == gold_claim.claim_id),
+            None,
+        )
+        if survivor != gold_claim:
+            survivor_intact = False
+        write_concept(root, concept)
+        if not validate_bundle(root).ok:
+            conformant = False
+
+    latest = returns_statement(30 + ingests)
+    heads = [c.statement for c in current_claims(concept.claims)]
+    latest_reflected = (
+        latest in concept.body
+        and returns_statement(30) not in concept.body
+        and gold in concept.body
+        and heads == [latest, gold]
+    )
+    return FidelityReport(
+        ingests=ingests,
+        drift_free=drift_free,
+        reconstructable=reconstructable,
+        survivor_intact=survivor_intact,
+        conformant=conformant,
+        latest_reflected=latest_reflected,
+    )
+
+
+def fidelity_criterion(fidelity: FidelityReport) -> AcceptanceCriterion:
+    """Gate edit-drift fidelity across >=20 sequential ingests (system_design §7.1)."""
+    return AcceptanceCriterion(
+        id="C3-fidelity",
+        name=f"Fidelity preserved across >={FIDELITY_INGESTS} sequential ingests",
+        passed=fidelity.ok,
+        target=f"no edit-drift across >={FIDELITY_INGESTS} ingests",
+        evidence=(
+            f"{fidelity.ingests} sequential ingests: body==claim projection "
+            f"{fidelity.drift_free}; every in-force claim grounded "
+            f"{fidelity.reconstructable}; unrelated claim byte-identical "
+            f"{fidelity.survivor_intact}; OKF-conformant each step {fidelity.conformant}; "
+            f"latest statement reflected, telephone-game absent {fidelity.latest_reflected}."
+        ),
+    )
+
+
+
 def run_acceptance(
     bundle: Bundle,
     embedding_provider: EmbeddingProvider,
@@ -127,7 +303,15 @@ def run_acceptance(
 ) -> AcceptanceReport:
     """Measure every MVP success criterion on ``bundle`` and gate each pass/fail."""
     bench = run_benchmark(bundle, embedding_provider, generation_provider)
-    criteria: list[AcceptanceCriterion] = [token_latency_criterion(bench)]
+    duplicates = evaluate_duplicate_rate(
+        bundle, embedding_provider, adjudicator=LexicalAdjudicator()
+    )
+    fidelity = measure_fidelity()
+    criteria: list[AcceptanceCriterion] = [
+        token_latency_criterion(bench),
+        duplicate_rate_criterion(duplicates),
+        fidelity_criterion(fidelity),
+    ]
     return AcceptanceReport(
         bundle_path=bundle_path,
         concept_count=len(bundle.concepts),
@@ -212,6 +396,10 @@ def _ratio(numerator: float, denominator: float) -> float:
 __all__ = [
     "AcceptanceCriterion",
     "AcceptanceReport",
+    "FidelityReport",
+    "duplicate_rate_criterion",
+    "fidelity_criterion",
+    "measure_fidelity",
     "render_acceptance_report",
     "run_acceptance",
     "token_latency_criterion",
