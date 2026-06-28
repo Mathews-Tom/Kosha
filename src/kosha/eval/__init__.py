@@ -7,6 +7,12 @@ later milestones add dedup/merge/relate/contradict suites (M12 consolidates them
 
 from __future__ import annotations
 
+from kosha.eval.contradict import (
+    ContradictCase,
+    ContradictEvalReport,
+    evaluate_contradict,
+    load_contradict_cases,
+)
 from kosha.eval.dedup import (
     DedupEvalReport,
     DuplicateRateReport,
@@ -33,6 +39,8 @@ from kosha.eval.relate import (
 )
 
 __all__ = [
+    "ContradictCase",
+    "ContradictEvalReport",
     "DedupEvalReport",
     "DuplicateRateReport",
     "ExtractEvalCase",
@@ -42,11 +50,13 @@ __all__ = [
     "MergeEvalReport",
     "RelateCase",
     "RelateEvalReport",
+    "evaluate_contradict",
     "evaluate_dedup",
     "evaluate_duplicate_rate",
     "evaluate_extractor",
     "evaluate_merge",
     "evaluate_relate",
+    "load_contradict_cases",
     "load_merge_cases",
     "load_relate_cases",
 ]

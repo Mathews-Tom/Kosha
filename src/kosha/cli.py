@@ -28,13 +28,16 @@ from kosha.bench import (
     render_table,
     run_benchmark,
 )
+from kosha.contradiction import LexicalContradictionJudge
 from kosha.dedup import LexicalAdjudicator
 from kosha.eval import (
+    evaluate_contradict,
     evaluate_dedup,
     evaluate_duplicate_rate,
     evaluate_extractor,
     evaluate_merge,
     evaluate_relate,
+    load_contradict_cases,
     load_merge_cases,
     load_relate_cases,
 )
@@ -50,6 +53,7 @@ _DEDUP_LABELS = Path("labels/dedup_seed.jsonl")
 _GRANULARITY_LABELS = Path("labels/granularity_seed.jsonl")
 _MERGE_LABELS = Path("labels/merge_seed.jsonl")
 _RELATE_LABELS = Path("labels/relate_seed.jsonl")
+_CONTRADICT_LABELS = Path("labels/contradict_seed.jsonl")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -140,6 +144,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=_RELATE_LABELS,
         help="Relate cases (default: labels/relate_seed.jsonl).",
     )
+    contradict_eval_parser = eval_subparsers.add_parser(
+        "contradict",
+        help="Score the contradiction detector: conflict-detection precision/recall/F1.",
+    )
+    contradict_eval_parser.add_argument(
+        "--labels",
+        type=Path,
+        default=_CONTRADICT_LABELS,
+        help="Contradiction cases (default: labels/contradict_seed.jsonl).",
+    )
     return parser
 
 
@@ -220,7 +234,9 @@ def _run_eval(args: argparse.Namespace) -> int:
         return _run_eval_merge(args.labels)
     if args.eval_command == "relate":
         return _run_eval_relate(args.labels)
-    print("kosha: usage: kosha eval {extract,dedup,merge,relate} [...]", file=sys.stderr)
+    if args.eval_command == "contradict":
+        return _run_eval_contradict(args.labels)
+    print("kosha: usage: kosha eval {extract,dedup,merge,relate,contradict} [...]", file=sys.stderr)
     return 2
 
 
@@ -293,6 +309,21 @@ def _run_eval_relate(labels_path: Path) -> int:
     print(
         f"precision: {report.precision:.3f}  recall: {report.recall:.3f}  f1: {report.f1:.3f} "
         f"({report.true_positives}/{report.gold_total} gold edges)"
+    )
+    return 0
+
+
+def _run_eval_contradict(labels_path: Path) -> int:
+    """Score the contradiction detector: conflict-detection precision/recall/F1."""
+    if not labels_path.is_file():
+        print(f"kosha: labels file not found: {labels_path}", file=sys.stderr)
+        return 2
+    judge = LexicalContradictionJudge()
+    report = evaluate_contradict(load_contradict_cases(labels_path), judge)
+    print(f"Contradict eval over {labels_path} ({report.case_count} cases, judge={judge.name})")
+    print(
+        f"precision: {report.precision:.3f}  recall: {report.recall:.3f}  "
+        f"f1: {report.f1:.3f}  accuracy: {report.accuracy:.3f}"
     )
     return 0
 
