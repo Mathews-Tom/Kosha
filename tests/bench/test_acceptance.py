@@ -1,0 +1,182 @@
+"""Acceptance harness — the token/latency MVP success criterion (M12 PR-1).
+
+The token gate proves the hybrid win two ways: strictly fewer tokens than the
+raw-docs baseline, and fewer tokens than RAG *per unit of answer quality* (a
+raw-token race rewards a strategy that answers less). The latency gate uses the
+deterministic round-trip comparison and only lets wall-clock contribute above the
+noise floor, so it never flakes on local compute.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from kosha.bench.acceptance import (
+    AcceptanceCriterion,
+    AcceptanceReport,
+    render_acceptance_report,
+    run_acceptance,
+    token_latency_criterion,
+)
+from kosha.bench.runner import BenchReport, StrategyResult
+from kosha.cli import main
+from kosha.okf import load_bundle
+from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
+
+ROOT = Path(__file__).resolve().parents[2]
+NORTHWIND = ROOT / "bundles" / "northwind"
+
+
+def _strategy(
+    name: str,
+    *,
+    total_tokens: float,
+    recall: float,
+    round_trips: float = 2.0,
+    latency_ms: float = 0.3,
+) -> StrategyResult:
+    return StrategyResult(
+        name=name,
+        avg_context_tokens=total_tokens * 0.8,
+        avg_total_tokens=total_tokens,
+        avg_round_trips=round_trips,
+        avg_latency_ms=latency_ms,
+        concept_recall=recall,
+        keyword_recall=recall,
+        answered_fraction=1.0,
+    )
+
+
+def _bench(*results: StrategyResult) -> BenchReport:
+    return BenchReport(
+        embedding_provider="test-embed",
+        generation_provider="test-gen",
+        query_count=8,
+        results=results,
+    )
+
+
+def test_token_latency_criterion_passes_on_northwind() -> None:
+    bundle = load_bundle(NORTHWIND)
+    report = run_acceptance(
+        bundle,
+        LexicalEmbeddingProvider(),
+        ExtractiveGenerationProvider(),
+        bundle_path=str(NORTHWIND),
+    )
+    criterion = report.by_id("C1-token-latency")
+    assert criterion.passed
+    assert report.passed
+
+
+def test_token_win_is_measured_at_matched_quality() -> None:
+    # Hybrid spends MORE raw tokens than RAG but achieves full recall where RAG
+    # answers a fraction; per-recall, hybrid is cheaper, so the criterion passes.
+    bench = _bench(
+        _strategy("hybrid", total_tokens=600, recall=1.0),
+        _strategy("rag", total_tokens=500, recall=0.6),
+        _strategy("long_context", total_tokens=1100, recall=1.0, round_trips=1.0),
+    )
+    criterion = token_latency_criterion(bench)
+    assert criterion.passed
+
+
+def test_token_criterion_fails_when_hybrid_loses_to_rag_at_equal_quality() -> None:
+    bench = _bench(
+        _strategy("hybrid", total_tokens=900, recall=1.0),
+        _strategy("rag", total_tokens=500, recall=1.0),
+        _strategy("long_context", total_tokens=1100, recall=1.0, round_trips=1.0),
+    )
+    criterion = token_latency_criterion(bench)
+    assert not criterion.passed
+
+
+def test_token_criterion_fails_when_hybrid_costs_more_than_raw_docs() -> None:
+    bench = _bench(
+        _strategy("hybrid", total_tokens=1200, recall=1.0),
+        _strategy("rag", total_tokens=2000, recall=0.5),
+        _strategy("long_context", total_tokens=1100, recall=1.0, round_trips=1.0),
+    )
+    criterion = token_latency_criterion(bench)
+    assert not criterion.passed
+
+
+def test_latency_criterion_fails_on_extra_round_trips() -> None:
+    bench = _bench(
+        _strategy("hybrid", total_tokens=400, recall=1.0, round_trips=3.0),
+        _strategy("rag", total_tokens=500, recall=0.6, round_trips=2.0),
+        _strategy("long_context", total_tokens=1100, recall=1.0, round_trips=1.0),
+    )
+    criterion = token_latency_criterion(bench)
+    assert not criterion.passed
+
+
+def test_latency_criterion_uses_wallclock_above_the_noise_floor() -> None:
+    # Above the noise floor a 3x slower hybrid blows the margin; within it passes.
+    blown = _bench(
+        _strategy("hybrid", total_tokens=400, recall=1.0, latency_ms=30.0),
+        _strategy("rag", total_tokens=500, recall=0.6, latency_ms=10.0),
+        _strategy("long_context", total_tokens=1100, recall=1.0, round_trips=1.0),
+    )
+    assert not token_latency_criterion(blown).passed
+
+    within = _bench(
+        _strategy("hybrid", total_tokens=400, recall=1.0, latency_ms=15.0),
+        _strategy("rag", total_tokens=500, recall=0.6, latency_ms=10.0),
+        _strategy("long_context", total_tokens=1100, recall=1.0, round_trips=1.0),
+    )
+    assert token_latency_criterion(within).passed
+
+
+def test_report_passes_iff_every_criterion_passes() -> None:
+    ok = AcceptanceCriterion("X", "ok", passed=True, target="t", evidence="e")
+    bad = AcceptanceCriterion("Y", "bad", passed=False, target="t", evidence="e")
+    passing = AcceptanceReport("b", 1, "em", "gen", (ok,))
+    failing = AcceptanceReport("b", 1, "em", "gen", (ok, bad))
+    assert passing.passed
+    assert not failing.passed
+
+
+def test_run_acceptance_verdicts_are_deterministic() -> None:
+    # Token + recall figures are deterministic; only wall-clock latency is not, so
+    # the stable invariant is the per-criterion pass/fail verdict, not the bytes.
+    bundle = load_bundle(NORTHWIND)
+    first = run_acceptance(
+        bundle, LexicalEmbeddingProvider(), ExtractiveGenerationProvider(), bundle_path="b"
+    )
+    second = run_acceptance(
+        bundle, LexicalEmbeddingProvider(), ExtractiveGenerationProvider(), bundle_path="b"
+    )
+    assert [(c.id, c.passed) for c in first.criteria] == [
+        (c.id, c.passed) for c in second.criteria
+    ]
+    assert first.passed == second.passed
+
+
+def test_render_acceptance_report_shows_verdict_and_each_criterion() -> None:
+    bundle = load_bundle(NORTHWIND)
+    report = run_acceptance(
+        bundle,
+        LexicalEmbeddingProvider(),
+        ExtractiveGenerationProvider(),
+        bundle_path=str(NORTHWIND),
+    )
+    document = render_acceptance_report(report)
+    assert "# Kosha MVP Acceptance Report" in document
+    assert "**Verdict: PASS**" in document
+    assert "C1-token-latency" in document
+
+
+def test_cli_bench_acceptance_exits_zero(capsys) -> None:  # type: ignore[no-untyped-def]
+    code = main(["bench", "acceptance", "--bundle", str(NORTHWIND)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "MVP success contract: PASS" in out
+
+
+def test_cli_bench_acceptance_writes_report(tmp_path: Path) -> None:
+    report_path = tmp_path / "ACCEPTANCE_REPORT.md"
+    code = main(["bench", "acceptance", "--bundle", str(NORTHWIND), "--report", str(report_path)])
+    assert code == 0
+    assert report_path.is_file()
+    assert "MVP Acceptance Report" in report_path.read_text(encoding="utf-8")

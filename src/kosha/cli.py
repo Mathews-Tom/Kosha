@@ -30,6 +30,7 @@ from kosha.bench import (
     render_table,
     run_benchmark,
 )
+from kosha.bench.acceptance import render_acceptance_report, run_acceptance
 from kosha.contradiction import LexicalContradictionJudge
 from kosha.dedup import LexicalAdjudicator
 from kosha.eval import (
@@ -95,6 +96,23 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Write the benchmark report to this path.",
+    )
+    bench_subparsers = bench_parser.add_subparsers(dest="bench_command")
+    acceptance_parser = bench_subparsers.add_parser(
+        "acceptance",
+        help="Gate the MVP success criteria on the golden corpus (exit 0 iff all pass).",
+    )
+    acceptance_parser.add_argument(
+        "--bundle",
+        type=Path,
+        default=_DEFAULT_BUNDLE,
+        help="Golden bundle to gate (default: bundles/northwind).",
+    )
+    acceptance_parser.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="Write the acceptance report to this path.",
     )
     eval_parser = subparsers.add_parser(
         "eval",
@@ -198,6 +216,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "validate":
         return _run_validate(args.bundle)
     if args.command == "bench":
+        if getattr(args, "bench_command", None) == "acceptance":
+            return _run_bench_acceptance(args.bundle, args.report)
         return _run_bench(args.bundle, args.report)
     if args.command == "eval":
         return _run_eval(args)
@@ -292,6 +312,34 @@ def _run_bench(bundle_path: Path, report_path: Path | None) -> int:
         report_path.write_text(document, encoding="utf-8")
         print(f"Wrote report to {report_path}")
     return 0
+
+
+def _run_bench_acceptance(bundle_path: Path, report_path: Path | None) -> int:
+    """Gate the MVP success criteria; exit 0 iff every criterion passes."""
+    if not bundle_path.is_dir():
+        print(f"kosha: not a bundle directory: {bundle_path}", file=sys.stderr)
+        return 2
+    bundle = load_bundle(bundle_path)
+    report = run_acceptance(
+        bundle,
+        resolve_embedding_provider(),
+        resolve_generation_provider(),
+        bundle_path=str(bundle_path),
+    )
+    print(
+        f"MVP acceptance over {bundle_path} "
+        f"({report.concept_count} concepts, embed={report.embedding_provider}, "
+        f"gen={report.generation_provider})"
+    )
+    for criterion in report.criteria:
+        status = "PASS" if criterion.passed else "FAIL"
+        print(f"{criterion.id}: {status} — {criterion.name}")
+    verdict = "PASS" if report.passed else "FAIL"
+    print(f"MVP success contract: {verdict}")
+    if report_path is not None:
+        report_path.write_text(render_acceptance_report(report), encoding="utf-8")
+        print(f"Wrote report to {report_path}")
+    return 0 if report.passed else 1
 
 
 def _run_eval(args: argparse.Namespace) -> int:
