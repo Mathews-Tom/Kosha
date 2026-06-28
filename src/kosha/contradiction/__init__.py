@@ -25,6 +25,12 @@ from kosha.contradiction.detect import (
     parse_verdict,
     structured_diff,
 )
+from kosha.contradiction.policy import (
+    Resolution,
+    ResolutionOutcome,
+    Winner,
+    resolve_conflict,
+)
 from kosha.contradiction.temporal import effective_claims, in_force
 
 __all__ = [
@@ -35,11 +41,15 @@ __all__ = [
     "GenerationContradictionJudge",
     "Judgment",
     "LexicalContradictionJudge",
+    "Resolution",
+    "ResolutionOutcome",
+    "Winner",
     "build_contradiction_prompt",
     "detect_conflict",
     "effective_claims",
     "find_conflict",
     "in_force",
     "parse_verdict",
+    "resolve_conflict",
     "structured_diff",
 ]
