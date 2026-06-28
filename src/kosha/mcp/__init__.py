@@ -8,6 +8,7 @@ explicitly by the server entrypoint and the MCP tests.
 
 from __future__ import annotations
 
+from kosha.mcp.fallback import render_consumer_skill, render_fallback_fragment
 from kosha.mcp.service import (
     AccessDeniedError,
     CandidateView,
@@ -32,4 +33,6 @@ __all__ = [
     "KoshaKnowledgeService",
     "LinkView",
     "LinksView",
+    "render_consumer_skill",
+    "render_fallback_fragment",
 ]
