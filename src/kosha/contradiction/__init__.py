@@ -11,9 +11,35 @@ never deleted, so a concept carries its history rather than forking files.
 
 from __future__ import annotations
 
+from kosha.contradiction.detect import (
+    ConflictReport,
+    ContradictionJudge,
+    ContradictionVerdict,
+    DiffSignal,
+    GenerationContradictionJudge,
+    Judgment,
+    LexicalContradictionJudge,
+    build_contradiction_prompt,
+    detect_conflict,
+    find_conflict,
+    parse_verdict,
+    structured_diff,
+)
 from kosha.contradiction.temporal import effective_claims, in_force
 
 __all__ = [
+    "ConflictReport",
+    "ContradictionJudge",
+    "ContradictionVerdict",
+    "DiffSignal",
+    "GenerationContradictionJudge",
+    "Judgment",
+    "LexicalContradictionJudge",
+    "build_contradiction_prompt",
+    "detect_conflict",
     "effective_claims",
+    "find_conflict",
     "in_force",
+    "parse_verdict",
+    "structured_diff",
 ]
