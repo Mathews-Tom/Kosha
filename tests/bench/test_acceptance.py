@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from kosha.bench.acceptance import (
     AcceptanceCriterion,
     AcceptanceReport,
@@ -176,7 +178,7 @@ def test_render_acceptance_report_shows_verdict_and_each_criterion() -> None:
     assert "C1-token-latency" in document
 
 
-def test_cli_bench_acceptance_exits_zero(capsys) -> None:  # type: ignore[no-untyped-def]
+def test_cli_bench_acceptance_exits_zero(capsys: pytest.CaptureFixture[str]) -> None:
     code = main(["bench", "acceptance", "--bundle", str(NORTHWIND)])
     out = capsys.readouterr().out
     assert code == 0
@@ -296,8 +298,8 @@ def test_contradiction_criterion_fails_when_a_conflict_is_lost() -> None:
 
 
 def test_cli_bench_acceptance_exits_nonzero_when_a_criterion_fails(
-    monkeypatch, capsys
-) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     # The exit code is the contract gate: a single failing criterion is non-zero.
     from kosha import cli
 

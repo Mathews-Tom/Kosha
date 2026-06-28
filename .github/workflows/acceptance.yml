@@ -1,0 +1,38 @@
+name: Acceptance
+
+# Opt-in / manual: the acceptance gate and the per-surface eval suites may make
+# model calls when a non-local provider is env-configured, so this runs on demand
+# rather than on every push/PR (the default providers are local and offline).
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Install Python and dependencies
+        run: uv sync --locked
+
+      - name: MVP success-criteria gate (exit 0 iff all four pass)
+        run: uv run kosha bench acceptance --report ACCEPTANCE_REPORT.md
+
+      - name: Per-surface eval suites
+        run: uv run pytest evals -q
+
+      - name: Upload acceptance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: acceptance-report
+          path: ACCEPTANCE_REPORT.md
