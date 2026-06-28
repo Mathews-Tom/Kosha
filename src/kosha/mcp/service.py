@@ -205,4 +205,11 @@ def _iso(value: datetime | None) -> str | None:
 
 
 def _parse_asof(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value) if value is not None else None
+    if value is None:
+        return None
+    moment = datetime.fromisoformat(value)
+    if moment.tzinfo is None:
+        raise ValueError(
+            f"asof {value!r} must be timezone-aware (e.g. 2025-06-01T00:00:00+00:00)"
+        )
+    return moment

@@ -30,6 +30,15 @@ def test_load_concept_asof_reveals_historical_claim(
     assert "45 days" not in view["body"]
 
 
+def test_load_concept_rejects_timezone_naive_asof(
+    temporal_service: KoshaKnowledgeService,
+) -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        temporal_service.load_concept(
+            "policies/returns/gold-members", asof="2025-06-01"
+        )
+
+
 def test_load_concept_returns_plain_body_verbatim(
     service: KoshaKnowledgeService,
 ) -> None:
