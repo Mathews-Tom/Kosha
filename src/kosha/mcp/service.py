@@ -77,6 +77,37 @@ class ConceptView(TypedDict):
     asof: str | None
 
 
+class CandidateView(TypedDict):
+    """One ranked candidate from the ``find_concepts`` embedding jump."""
+
+    concept_id: str
+    score: float
+    description: str | None
+
+
+class FindView(TypedDict):
+    """The ranked jump result returned by ``find_concepts``."""
+
+    query: str
+    candidates: list[CandidateView]
+
+
+class LinkView(TypedDict):
+    """One edge in a ``follow_links`` result; ``present`` is False if dangling."""
+
+    concept_id: str
+    description: str | None
+    present: bool
+
+
+class LinksView(TypedDict):
+    """The neighborhood returned by ``follow_links``: out-links and backlinks."""
+
+    concept_id: str
+    out_links: list[LinkView]
+    backlinks: list[LinkView]
+
+
 class ConceptNotFoundError(KeyError):
     """Raised when a requested ``concept_id`` is not in the bundle."""
 
@@ -185,6 +216,57 @@ class KoshaKnowledgeService:
             "body": body,
             "out_links": list(concept.out_links),
             "asof": _iso(moment),
+        }
+
+    def find_concepts(self, query: str, k: int = 3) -> FindView:
+        """Jump to the ``k`` concepts nearest ``query`` in the embedding space.
+
+        The latency mechanism of the hybrid path (system_design §4.4): one
+        embedding round-trip lands near the answer, returning ranked
+        ``concept_id``s with their descriptions — not bodies — so the agent then
+        traverses (read_frontmatter, load_concept, follow_links) to expand and
+        verify. This is a *jump*, never a raw-text search of the corpus.
+        """
+        candidates: list[CandidateView] = []
+        for neighbor in self._index.query_text(query, k):
+            concept = self._bundle.concepts.get(neighbor.concept_id)
+            description = concept.frontmatter.description if concept else None
+            candidates.append(
+                {
+                    "concept_id": neighbor.concept_id,
+                    "score": neighbor.score,
+                    "description": description,
+                }
+            )
+        return {"query": query, "candidates": candidates}
+
+    def follow_links(self, concept_id: str) -> LinksView:
+        """Return a concept's neighborhood: its out-links and its backlinks.
+
+        Traversal expansion (system_design §4.4): out-links are the concept's
+        bundle-relative edges (each flagged ``present`` or intentionally dangling);
+        backlinks are the reverse edges ("cited by"). Both carry descriptions so the
+        agent can decide what to load next without loading anything.
+        """
+        concept = self._require_concept(concept_id)
+        out_links = [self._link_view(target) for target in concept.out_links]
+        backlinks = [
+            self._link_view(other_id)
+            for other_id in sorted(self._bundle.concepts)
+            if concept_id in self._bundle.concepts[other_id].out_links
+        ]
+        return {
+            "concept_id": concept_id,
+            "out_links": out_links,
+            "backlinks": backlinks,
+        }
+
+    def _link_view(self, target_id: str) -> LinkView:
+        target = self._bundle.concepts.get(target_id)
+        return {
+            "concept_id": target_id,
+            "description": target.frontmatter.description if target else None,
+            "present": target is not None,
         }
 
     def _require_access(self) -> None:

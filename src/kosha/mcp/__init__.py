@@ -10,18 +10,26 @@ from __future__ import annotations
 
 from kosha.mcp.service import (
     AccessDeniedError,
+    CandidateView,
     ConceptNotFoundError,
     ConceptView,
+    FindView,
     FrontmatterView,
     IndexView,
     KoshaKnowledgeService,
+    LinksView,
+    LinkView,
 )
 
 __all__ = [
     "AccessDeniedError",
+    "CandidateView",
     "ConceptNotFoundError",
     "ConceptView",
+    "FindView",
     "FrontmatterView",
     "IndexView",
     "KoshaKnowledgeService",
+    "LinkView",
+    "LinksView",
 ]
