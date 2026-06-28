@@ -42,6 +42,8 @@ def make_claim(
     *,
     citations: Sequence[str] = (),
     supersedes: str | None = None,
+    effective_from: datetime | None = None,
+    effective_to: datetime | None = None,
 ) -> Claim:
     """Build a ``current`` claim with a content-addressed id."""
     return Claim(
@@ -52,6 +54,8 @@ def make_claim(
         status=ClaimStatus.CURRENT,
         citations=list(citations),
         supersedes=supersedes,
+        effective_from=effective_from,
+        effective_to=effective_to,
     )
 
 

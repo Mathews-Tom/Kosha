@@ -72,6 +72,11 @@ class Claim(BaseModel):
     ``supersedes`` chains a replacement claim back to the claim it retired, so a
     concept's full lineage (current head + retired ancestors) is reconstructable
     without deleting history.
+
+    ``effective_from`` / ``effective_to`` carry per-claim temporal validity
+    (``effective_to is None`` means currently in force). The contradiction
+    resolution policy reads this window to supersede an expired claim by a
+    later-effective one, retaining the old with its window closed (§3.2, §4.3.1).
     """
 
     claim_id: str
@@ -81,6 +86,8 @@ class Claim(BaseModel):
     status: ClaimStatus = ClaimStatus.CURRENT
     citations: list[str] = Field(default_factory=list)
     supersedes: str | None = None
+    effective_from: datetime | None = None
+    effective_to: datetime | None = None
 
 
 class Concept(BaseModel):
