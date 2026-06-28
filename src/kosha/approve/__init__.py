@@ -8,13 +8,31 @@ without an explicit approval (§1 "Every write is reviewable").
 
 from __future__ import annotations
 
+from kosha.approve.autonomy import (
+    DEFAULT_THRESHOLDS,
+    AutonomyThresholds,
+    ChangeRouting,
+    Lane,
+    PlanRouting,
+    render_routing,
+    route_change,
+    route_plan,
+)
 from kosha.approve.decision import Decision, Reader, parse_decision, request_decision
 from kosha.approve.render import render_plan
 
 __all__ = [
+    "DEFAULT_THRESHOLDS",
+    "AutonomyThresholds",
+    "ChangeRouting",
     "Decision",
+    "Lane",
+    "PlanRouting",
     "Reader",
     "parse_decision",
     "render_plan",
+    "render_routing",
     "request_decision",
+    "route_change",
+    "route_plan",
 ]
