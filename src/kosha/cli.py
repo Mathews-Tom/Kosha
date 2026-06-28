@@ -14,9 +14,11 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Iterable, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 from kosha import __version__
+from kosha.approve import render_plan, render_routing
 from kosha.bench import (
     evaluate_granularity,
     evaluate_kill_signals,
@@ -44,6 +46,7 @@ from kosha.eval import (
 from kosha.link import LexicalRelator
 from kosha.merge import LexicalClaimTargeter
 from kosha.okf import load_bundle
+from kosha.pipeline import ingest
 from kosha.providers import resolve_embedding_provider, resolve_generation_provider
 from kosha.validate import validate_bundle
 
@@ -154,6 +157,37 @@ def build_parser() -> argparse.ArgumentParser:
         default=_CONTRADICT_LABELS,
         help="Contradiction cases (default: labels/contradict_seed.jsonl).",
     )
+    ingest_parser = subparsers.add_parser(
+        "ingest",
+        help="Ingest a source folder into a bundle behind the plan->approve->commit gate.",
+    )
+    ingest_parser.add_argument(
+        "source",
+        type=Path,
+        help="Source folder (Markdown) to ingest.",
+    )
+    ingest_parser.add_argument(
+        "--bundle",
+        type=Path,
+        default=_DEFAULT_BUNDLE,
+        help="Target OKF bundle directory (default: bundles/northwind).",
+    )
+    ingest_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build and print the plan without writing or committing.",
+    )
+    ingest_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Approve the plan non-interactively (explicit human approval).",
+    )
+    ingest_parser.add_argument(
+        "--authority",
+        type=int,
+        default=0,
+        help="Source authority rank for contradiction resolution (default: 0).",
+    )
     return parser
 
 
@@ -167,7 +201,43 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_bench(args.bundle, args.report)
     if args.command == "eval":
         return _run_eval(args)
+    if args.command == "ingest":
+        return _run_ingest(args)
     parser.print_help()
+    return 0
+
+
+def _run_ingest(args: argparse.Namespace) -> int:
+    """Run ``kosha ingest``: build the plan, route it, and commit on approval."""
+    if not args.source.is_dir():
+        print(f"kosha: not a source directory: {args.source}", file=sys.stderr)
+        return 2
+    if not args.bundle.is_dir():
+        print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
+        return 2
+    reader = input if sys.stdin.isatty() and not args.yes else None
+    result = ingest(
+        args.source,
+        args.bundle,
+        asof=datetime.now(UTC),
+        source_authority=args.authority,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        reader=reader,
+    )
+    print(render_plan(result.plan))
+    print()
+    print(render_routing(result.routing))
+    if args.dry_run:
+        print("\ndry run: no changes written.")
+        return 0
+    if result.committed and result.commit_sha is not None:
+        print(
+            f"\ncommitted {result.commit_sha[:8]} on {result.branch} "
+            f"(backup {result.backup_tag})."
+        )
+    else:
+        print("\nnot approved: nothing committed.")
     return 0
 
 
