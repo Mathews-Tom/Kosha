@@ -154,6 +154,7 @@ class KoshaKnowledgeService:
         directory's concept documents with their descriptions — the progressive-
         disclosure map an agent reads before opening any document.
         """
+        self._require_access()
         doc = regenerate_index(self._bundle, scope)
         sections: list[IndexSectionView] = [
             {
@@ -178,6 +179,7 @@ class KoshaKnowledgeService:
         :meth:`load_concept`: an agent reads ``type``/``description``/effective
         dates to decide whether a candidate is worth loading.
         """
+        self._require_access()
         concept = self._require_concept(concept_id)
         fm = concept.frontmatter
         return {
@@ -227,6 +229,7 @@ class KoshaKnowledgeService:
         traverses (read_frontmatter, load_concept, follow_links) to expand and
         verify. This is a *jump*, never a raw-text search of the corpus.
         """
+        self._require_access()
         candidates: list[CandidateView] = []
         for neighbor in self._index.query_text(query, k):
             concept = self._bundle.concepts.get(neighbor.concept_id)
@@ -248,6 +251,7 @@ class KoshaKnowledgeService:
         backlinks are the reverse edges ("cited by"). Both carry descriptions so the
         agent can decide what to load next without loading anything.
         """
+        self._require_access()
         concept = self._require_concept(concept_id)
         out_links = [self._link_view(target) for target in concept.out_links]
         backlinks = [
