@@ -31,7 +31,7 @@ def _call(service: KoshaKnowledgeService, name: str, arguments: dict[str, Any]) 
 
 def test_scaffold_exposes_traversal_tools(service: KoshaKnowledgeService) -> None:
     names = _tool_names(service)
-    assert {"list_index", "read_frontmatter"} <= names
+    assert {"list_index", "read_frontmatter", "load_concept"} <= names
     # No raw-text search tool leaks in even at the scaffold stage.
     assert not names & {"search", "grep", "read_file", "query", "load_corpus"}
 
@@ -52,3 +52,13 @@ def test_list_index_over_mcp(service: KoshaKnowledgeService) -> None:
         for entry in section["entries"]
     }
     assert "policies/returns/gold-members" in targets
+
+
+def test_load_concept_over_mcp_hides_expired(
+    temporal_service: KoshaKnowledgeService,
+) -> None:
+    structured = _call(
+        temporal_service, "load_concept", {"concept_id": "policies/returns/gold-members"}
+    )
+    assert "45 days" in structured["body"]
+    assert "60 days" not in structured["body"]

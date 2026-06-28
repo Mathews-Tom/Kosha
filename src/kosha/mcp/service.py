@@ -19,11 +19,14 @@ unchanged through the MCP protocol and the fallback path.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from typing import TypedDict
 
+from kosha.contradiction import effective_claims
 from kosha.index.embedding import EmbeddingIndex
 from kosha.indexlog.index import regenerate_index
+from kosha.merge.claims import render_claim_set
 from kosha.model import Bundle, Concept
 
 
@@ -63,8 +66,23 @@ class FrontmatterView(TypedDict):
     access_level: str | None
 
 
+class ConceptView(TypedDict):
+    """The body returned by ``load_concept``, filtered to in-force claims."""
+
+    concept_id: str
+    type: str
+    title: str | None
+    body: str
+    out_links: list[str]
+    asof: str | None
+
+
 class ConceptNotFoundError(KeyError):
     """Raised when a requested ``concept_id`` is not in the bundle."""
+
+
+class AccessDeniedError(PermissionError):
+    """Raised when the caller's clearance does not cover the bundle's access level."""
 
 
 class KoshaKnowledgeService:
@@ -73,11 +91,25 @@ class KoshaKnowledgeService:
     Construct it with the bundle and its M4 embedding index; the MCP server and the
     fallback both delegate here. The index is held for the embedding *jump*
     (:meth:`find_concepts`); the structural traversal methods read only the bundle.
+
+    Access is the **bundle-level** permission unit (system_design §6, §7.2): when
+    ``bundle_access`` is set, a caller is served only if ``bundle_access`` is in its
+    ``clearance``. There is no concept-level ACL — the bundle is granted or denied
+    as a whole.
     """
 
-    def __init__(self, bundle: Bundle, index: EmbeddingIndex) -> None:
+    def __init__(
+        self,
+        bundle: Bundle,
+        index: EmbeddingIndex,
+        *,
+        bundle_access: str | None = None,
+        clearance: Iterable[str] = (),
+    ) -> None:
         self._bundle = bundle
         self._index = index
+        self._bundle_access = bundle_access
+        self._clearance = frozenset(clearance)
 
     @property
     def bundle(self) -> Bundle:
@@ -129,6 +161,38 @@ class KoshaKnowledgeService:
             "access_level": fm.access_level,
         }
 
+    def load_concept(self, concept_id: str, *, asof: str | None = None) -> ConceptView:
+        """Load a concept's body, filtered to the claims in force at ``asof``.
+
+        The access-gated, temporally-filtered read (system_design §4.4, §3.2). The
+        bundle-level access gate runs first, so an uncleared bundle yields nothing.
+        By default (``asof=None``) only currently-in-force claims render — an
+        expired claim (one whose ``effective_to`` has passed) is hidden; pass an ISO
+        ``asof`` for the historical view valid at that instant. A concept whose body
+        is a plain document (no tracked claims) is returned verbatim.
+        """
+        self._require_access()
+        concept = self._require_concept(concept_id)
+        moment = _parse_asof(asof)
+        if concept.claims:
+            body = render_claim_set(effective_claims(concept.claims, asof=moment))
+        else:
+            body = concept.body
+        return {
+            "concept_id": concept_id,
+            "type": concept.frontmatter.type,
+            "title": concept.frontmatter.title,
+            "body": body,
+            "out_links": list(concept.out_links),
+            "asof": _iso(moment),
+        }
+
+    def _require_access(self) -> None:
+        if self._bundle_access is not None and self._bundle_access not in self._clearance:
+            raise AccessDeniedError(
+                f"bundle access level {self._bundle_access!r} not in clearance"
+            )
+
     def _require_concept(self, concept_id: str) -> Concept:
         concept = self._bundle.concepts.get(concept_id)
         if concept is None:
@@ -138,3 +202,14 @@ class KoshaKnowledgeService:
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
+
+
+def _parse_asof(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    moment = datetime.fromisoformat(value)
+    if moment.tzinfo is None:
+        raise ValueError(
+            f"asof {value!r} must be timezone-aware (e.g. 2025-06-01T00:00:00+00:00)"
+        )
+    return moment

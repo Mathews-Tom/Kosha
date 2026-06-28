@@ -9,14 +9,18 @@ explicitly by the server entrypoint and the MCP tests.
 from __future__ import annotations
 
 from kosha.mcp.service import (
+    AccessDeniedError,
     ConceptNotFoundError,
+    ConceptView,
     FrontmatterView,
     IndexView,
     KoshaKnowledgeService,
 )
 
 __all__ = [
+    "AccessDeniedError",
     "ConceptNotFoundError",
+    "ConceptView",
     "FrontmatterView",
     "IndexView",
     "KoshaKnowledgeService",

@@ -18,7 +18,12 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-from kosha.mcp.service import FrontmatterView, IndexView, KoshaKnowledgeService
+from kosha.mcp.service import (
+    ConceptView,
+    FrontmatterView,
+    IndexView,
+    KoshaKnowledgeService,
+)
 
 _INSTRUCTIONS = (
     "Answer from this OKF bundle by traversal, never by guessing or grepping. "
@@ -56,6 +61,16 @@ def build_server(
         load_concept.
         """
         return service.read_frontmatter(concept_id)
+
+    @server.tool()
+    def load_concept(concept_id: str, asof: str | None = None) -> ConceptView:
+        """Load a concept's body, showing only the claims currently in force.
+
+        An expired claim is hidden by default; pass an ISO ``asof`` timestamp to
+        read the historical view valid at that instant. Load a concept only after
+        read_frontmatter says it is relevant.
+        """
+        return service.load_concept(concept_id, asof=asof)
 
     return server
 
