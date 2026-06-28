@@ -14,11 +14,25 @@ from kosha.indexlog.index import (
     regenerate_indexes,
     write_indexes,
 )
+from kosha.indexlog.log import (
+    LOG_NAME,
+    LOG_TITLE,
+    LogEntry,
+    append_entries,
+    append_to_log,
+    render_entry,
+)
 
 __all__ = [
+    "LOG_NAME",
+    "LOG_TITLE",
+    "LogEntry",
+    "append_entries",
+    "append_to_log",
     "bundle_directories",
     "directory_of",
     "regenerate_index",
     "regenerate_indexes",
+    "render_entry",
     "write_indexes",
 ]
