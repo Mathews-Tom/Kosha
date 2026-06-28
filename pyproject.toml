@@ -1,5 +1,5 @@
 [project]
-name = "kosha"
+name = "kosha-okf"
 version = "0.1.0"
 description = "Self-maintaining OKF knowledge engine — curated knowledge, kept alive."
 readme = "README.md"

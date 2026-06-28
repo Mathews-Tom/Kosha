@@ -6,7 +6,7 @@ tools and delegates straight to them. The exposed tool set is *exactly* the
 traversal/jump surface (system_design §4.4) — there is no raw-text search tool, so
 a connected agent cannot grep the corpus (§1, §7.1).
 
-Importing this module requires the optional ``mcp`` dependency (``kosha[mcp]``);
+Importing this module requires the optional ``mcp`` dependency (``kosha-okf[mcp]``);
 the pure service in :mod:`kosha.mcp.service` does not.
 """
 

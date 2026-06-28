@@ -2,8 +2,8 @@
 
 **Curated knowledge, kept alive.**
 
-[![PyPI version](https://img.shields.io/pypi/v/kosha.svg)](https://pypi.org/project/kosha/)
-[![Python versions](https://img.shields.io/pypi/pyversions/kosha.svg)](https://pypi.org/project/kosha/)
+[![PyPI version](https://img.shields.io/pypi/v/kosha-okf.svg)](https://pypi.org/project/kosha-okf/)
+[![Python versions](https://img.shields.io/pypi/pyversions/kosha-okf.svg)](https://pypi.org/project/kosha-okf/)
 [![CI](https://github.com/Mathews-Tom/Kosha/actions/workflows/ci.yml/badge.svg)](https://github.com/Mathews-Tom/Kosha/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
@@ -78,10 +78,10 @@ Requires Python ≥ 3.12.
 ### From PyPI
 
 ```bash
-pip install kosha            # core engine + CLI
-pip install 'kosha[mcp]'     # plus the MCP consumer server
+pip install kosha-okf            # core engine + CLI
+pip install 'kosha-okf[mcp]'     # plus the MCP consumer server
 
-uv tool install 'kosha[mcp]' # or install as an isolated CLI tool
+uv tool install 'kosha-okf[mcp]' # or install as an isolated CLI tool
 ```
 
 ```bash
