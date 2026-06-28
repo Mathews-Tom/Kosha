@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from kosha.bench.report import LATENCY_MARGIN, LATENCY_NOISE_FLOOR_MS
+from kosha.bench.report import LATENCY_MARGIN, LATENCY_NOISE_FLOOR_MS, _ratio
 from kosha.bench.runner import BenchReport, StrategyResult, run_benchmark
 from kosha.contradiction import (
     LexicalContradictionJudge,
@@ -497,12 +497,6 @@ def render_acceptance_report(report: AcceptanceReport) -> str:
 def _cost_per_recall(result: StrategyResult) -> float:
     """Total tokens spent per unit of concept recall — token cost at matched quality."""
     return _ratio(result.avg_total_tokens, result.concept_recall)
-
-
-def _ratio(numerator: float, denominator: float) -> float:
-    if denominator == 0.0:
-        return float("inf") if numerator > 0.0 else 1.0
-    return numerator / denominator
 
 
 __all__ = [
