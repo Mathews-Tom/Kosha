@@ -33,6 +33,13 @@ from pathlib import Path
 
 from kosha.bench.report import LATENCY_MARGIN, LATENCY_NOISE_FLOOR_MS
 from kosha.bench.runner import BenchReport, StrategyResult, run_benchmark
+from kosha.contradiction import (
+    LexicalContradictionJudge,
+    Resolution,
+    SilentOverwriteError,
+    assert_no_silent_overwrite,
+    reconcile,
+)
 from kosha.dedup import LexicalAdjudicator
 from kosha.eval.dedup import DuplicateRateReport, evaluate_duplicate_rate
 from kosha.extract import ConceptDraft
@@ -43,10 +50,11 @@ from kosha.merge import (
     create_concept,
     current_claims,
     is_reconstructable,
+    make_claim,
     merge_update,
     write_concept,
 )
-from kosha.model import Bundle, Source, SourceKind
+from kosha.model import Bundle, Claim, Source, SourceKind
 from kosha.providers.base import EmbeddingProvider, GenerationProvider
 from kosha.validate import validate_bundle
 
@@ -55,6 +63,9 @@ from kosha.validate import validate_bundle
 DUPLICATE_RATE_BAR = 0.0
 # Fidelity is the §8.1 / M7 edit-drift bar: held across at least this many ingests.
 FIDELITY_INGESTS = 20
+# Contradiction safety drives at least this many conflicting temporal re-ingests,
+# plus an authority and an escalation case, all of which must be handled.
+CONTRADICTION_INGESTS = 10
 
 
 @dataclass(frozen=True)
@@ -293,6 +304,105 @@ def fidelity_criterion(fidelity: FidelityReport) -> AcceptanceCriterion:
     )
 
 
+@dataclass(frozen=True)
+class ContradictionSafetyReport:
+    """Outcome of driving injected contradictions through the resolution policy."""
+
+    injected: int
+    conflicting: int
+    resolved: int
+    escalated: int
+    silent_overwrites: int
+
+    @property
+    def handled(self) -> int:
+        """Injected contradictions that were resolved or escalated, never lost."""
+        return self.resolved + self.escalated
+
+    @property
+    def ok(self) -> bool:
+        """Every injected contradiction detected, handled, and none overwritten."""
+        return (
+            self.injected > 0
+            and self.conflicting == self.injected
+            and self.handled == self.injected
+            and self.silent_overwrites == 0
+        )
+
+
+def measure_contradiction_safety(
+    ingests: int = CONTRADICTION_INGESTS,
+) -> ContradictionSafetyReport:
+    """Drive injected contradictions through ``reconcile``; none may be lost (§4.3.1).
+
+    Exercises all three resolution branches — a long temporal supersession stream,
+    a source-authority override, and an equal-authority escalation — and at every
+    step asserts the never-silent-overwrite invariant. Each injected claim must be
+    detected as a material conflict and resolved-or-escalated, never dropped.
+    """
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    judge = LexicalContradictionJudge()
+    authority = {"wiki": 1, "wiki-b": 1, "official": 3}
+    counts = {"injected": 0, "conflicting": 0, "resolved": 0, "escalated": 0, "silent": 0}
+
+    def returns(days: int) -> str:
+        return f"Standard returns are accepted within {days} days of delivery."
+
+    def drive(claims: list[Claim], new_claim: Claim) -> list[Claim]:
+        counts["injected"] += 1
+        result = reconcile(claims, new_claim, authority=authority, judge=judge)
+        if result.conflicting:
+            counts["conflicting"] += 1
+        try:
+            assert_no_silent_overwrite(claims, result.claims)
+        except SilentOverwriteError:
+            counts["silent"] += 1
+        if result.outcome is not None:
+            if result.outcome.resolution is Resolution.ESCALATE:
+                counts["escalated"] += 1
+            else:
+                counts["resolved"] += 1
+        return list(result.claims)
+
+    # Temporal stream: a run of later-effective conflicting re-ingests.
+    claims = [make_claim(returns(30), "wiki", start, effective_from=start)]
+    for i in range(1, ingests + 1):
+        effective = start + timedelta(days=i)
+        claims = drive(
+            claims, make_claim(returns(30 + i), "wiki", effective, effective_from=effective)
+        )
+
+    # Source-authority override: a higher-rank source wins with no temporal order.
+    authority_claims = [make_claim(returns(30), "wiki", start)]
+    drive(authority_claims, make_claim(returns(60), "official", start))
+
+    # Escalation: equal authority, overlapping validity -> the human approval plan.
+    escalate_claims = [make_claim(returns(30), "wiki", start)]
+    drive(escalate_claims, make_claim(returns(90), "wiki-b", start))
+
+    return ContradictionSafetyReport(
+        injected=counts["injected"],
+        conflicting=counts["conflicting"],
+        resolved=counts["resolved"],
+        escalated=counts["escalated"],
+        silent_overwrites=counts["silent"],
+    )
+
+
+def contradiction_criterion(safety: ContradictionSafetyReport) -> AcceptanceCriterion:
+    """Gate that injected contradictions are resolved-or-escalated, never overwritten."""
+    return AcceptanceCriterion(
+        id="C4-contradiction-safety",
+        name="Contradictions resolved-or-escalated, 0 silent overwrites",
+        passed=safety.ok,
+        target="100% of injected contradictions resolved-or-escalated; 0 silent overwrites",
+        evidence=(
+            f"{safety.injected} injected contradictions: {safety.conflicting} detected; "
+            f"{safety.resolved} resolved (temporal/authority) + {safety.escalated} escalated "
+            f"= {safety.handled} handled; {safety.silent_overwrites} silent overwrites."
+        ),
+    )
+
 
 def run_acceptance(
     bundle: Bundle,
@@ -307,10 +417,12 @@ def run_acceptance(
         bundle, embedding_provider, adjudicator=LexicalAdjudicator()
     )
     fidelity = measure_fidelity()
+    contradiction = measure_contradiction_safety()
     criteria: list[AcceptanceCriterion] = [
         token_latency_criterion(bench),
         duplicate_rate_criterion(duplicates),
         fidelity_criterion(fidelity),
+        contradiction_criterion(contradiction),
     ]
     return AcceptanceReport(
         bundle_path=bundle_path,
@@ -396,9 +508,12 @@ def _ratio(numerator: float, denominator: float) -> float:
 __all__ = [
     "AcceptanceCriterion",
     "AcceptanceReport",
+    "ContradictionSafetyReport",
     "FidelityReport",
+    "contradiction_criterion",
     "duplicate_rate_criterion",
     "fidelity_criterion",
+    "measure_contradiction_safety",
     "measure_fidelity",
     "render_acceptance_report",
     "run_acceptance",

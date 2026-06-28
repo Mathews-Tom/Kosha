@@ -14,9 +14,12 @@ from pathlib import Path
 from kosha.bench.acceptance import (
     AcceptanceCriterion,
     AcceptanceReport,
+    ContradictionSafetyReport,
     FidelityReport,
+    contradiction_criterion,
     duplicate_rate_criterion,
     fidelity_criterion,
+    measure_contradiction_safety,
     measure_fidelity,
     render_acceptance_report,
     run_acceptance,
@@ -245,7 +248,7 @@ def test_fidelity_criterion_fails_on_any_drift() -> None:
     assert not fidelity_criterion(drifted).passed
 
 
-def test_run_acceptance_gates_all_three_criteria() -> None:
+def test_run_acceptance_gates_all_four_criteria() -> None:
     bundle = load_bundle(NORTHWIND)
     report = run_acceptance(
         bundle,
@@ -254,5 +257,58 @@ def test_run_acceptance_gates_all_three_criteria() -> None:
         bundle_path=str(NORTHWIND),
     )
     ids = [c.id for c in report.criteria]
-    assert ids == ["C1-token-latency", "C2-duplicate-rate", "C3-fidelity"]
+    assert ids == [
+        "C1-token-latency",
+        "C2-duplicate-rate",
+        "C3-fidelity",
+        "C4-contradiction-safety",
+    ]
     assert report.passed
+
+
+def test_measure_contradiction_safety_handles_every_injected() -> None:
+    safety = measure_contradiction_safety()
+    # Temporal run (10) + one authority override + one escalation = 12 injected.
+    assert safety.injected == 12
+    assert safety.conflicting == safety.injected
+    assert safety.handled == safety.injected
+    assert safety.resolved == 11  # 10 temporal + 1 authority
+    assert safety.escalated == 1
+    assert safety.silent_overwrites == 0
+    assert safety.ok
+    assert contradiction_criterion(safety).passed
+
+
+def test_contradiction_criterion_fails_on_a_silent_overwrite() -> None:
+    unsafe = ContradictionSafetyReport(
+        injected=12, conflicting=12, resolved=11, escalated=1, silent_overwrites=1
+    )
+    assert not contradiction_criterion(unsafe).passed
+
+
+def test_contradiction_criterion_fails_when_a_conflict_is_lost() -> None:
+    # A conflict neither resolved nor escalated (handled < injected) is "lost".
+    lost = ContradictionSafetyReport(
+        injected=12, conflicting=12, resolved=10, escalated=1, silent_overwrites=0
+    )
+    assert lost.handled == 11
+    assert not contradiction_criterion(lost).passed
+
+
+def test_cli_bench_acceptance_exits_nonzero_when_a_criterion_fails(
+    monkeypatch, capsys
+) -> None:  # type: ignore[no-untyped-def]
+    # The exit code is the contract gate: a single failing criterion is non-zero.
+    from kosha import cli
+
+    failing = AcceptanceReport(
+        "b",
+        1,
+        "em",
+        "gen",
+        (AcceptanceCriterion("C1", "x", passed=False, target="t", evidence="e"),),
+    )
+    monkeypatch.setattr(cli, "run_acceptance", lambda *a, **k: failing)
+    code = cli.main(["bench", "acceptance", "--bundle", str(NORTHWIND)])
+    assert code == 1
+    assert "MVP success contract: FAIL" in capsys.readouterr().out
