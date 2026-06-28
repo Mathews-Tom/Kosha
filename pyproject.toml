@@ -13,6 +13,12 @@ dependencies = [
 
 [project.scripts]
 kosha = "kosha.cli:main"
+kosha-mcp = "kosha.mcp.server:main"
+
+[project.optional-dependencies]
+mcp = [
+    "mcp>=1.2",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -27,6 +33,7 @@ dev = [
     "mypy>=1.11",
     "ruff>=0.6",
     "types-pyyaml>=6.0.12.20260518",
+    "mcp>=1.2",
 ]
 
 [tool.pytest.ini_options]
