@@ -29,10 +29,18 @@ def _call(service: KoshaKnowledgeService, name: str, arguments: dict[str, Any]) 
     return asyncio.run(run())
 
 
-def test_scaffold_exposes_traversal_tools(service: KoshaKnowledgeService) -> None:
+def test_server_exposes_the_full_traversal_surface(
+    service: KoshaKnowledgeService,
+) -> None:
     names = _tool_names(service)
-    assert {"list_index", "read_frontmatter", "load_concept"} <= names
-    # No raw-text search tool leaks in even at the scaffold stage.
+    assert {
+        "find_concepts",
+        "list_index",
+        "read_frontmatter",
+        "load_concept",
+        "follow_links",
+    } <= names
+    # No raw-text search tool leaks into the surface.
     assert not names & {"search", "grep", "read_file", "query", "load_corpus"}
 
 
@@ -62,3 +70,19 @@ def test_load_concept_over_mcp_hides_expired(
     )
     assert "45 days" in structured["body"]
     assert "60 days" not in structured["body"]
+
+
+def test_find_concepts_over_mcp(service: KoshaKnowledgeService) -> None:
+    structured = _call(
+        service, "find_concepts", {"query": "gold member return window", "k": 3}
+    )
+    assert structured["candidates"]
+    assert all("score" in candidate for candidate in structured["candidates"])
+
+
+def test_follow_links_over_mcp(service: KoshaKnowledgeService) -> None:
+    structured = _call(
+        service, "follow_links", {"concept_id": "policies/returns/gold-members"}
+    )
+    targets = {link["concept_id"] for link in structured["out_links"]}
+    assert "entities/membership-tier" in targets
