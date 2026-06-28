@@ -1,5 +1,234 @@
 # Kosha
 
-Curated knowledge, kept alive.
+**Curated knowledge, kept alive.**
 
-> Kosha (Sanskrit: कोश, pronounced koh-shah) — A traditional term for a treasury or lexicon, representing a curated vessel of knowledge.
+[![PyPI version](https://img.shields.io/pypi/v/kosha.svg)](https://pypi.org/project/kosha/)
+[![Python versions](https://img.shields.io/pypi/pyversions/kosha.svg)](https://pypi.org/project/kosha/)
+[![CI](https://github.com/Mathews-Tom/Kosha/actions/workflows/ci.yml/badge.svg)](https://github.com/Mathews-Tom/Kosha/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
+> Kosha (Sanskrit: कोश, pronounced *koh-shah*) — a traditional term for a treasury or lexicon: a curated vessel of knowledge.
+
+Kosha is a self-maintaining [OKF](https://openknowledgeformat.com) knowledge engine. It turns an organization's scattered knowledge into a **living, version-controlled "brain"** that any agent — Claude, Gemini, a local model — can answer from, instead of re-deriving answers from raw documents on every query.
+
+It does two things no OKF converter does:
+
+1. **Keeps the corpus coherent as it grows.** Every ingest extracts concepts, *deduplicates against what already exists*, merges or creates, discovers cross-links, and flags contradictions — as a reviewable Git commit. No duplicate folders, no telephone-game drift.
+2. **Forces consumers to traverse, not grep.** A connected agent reads through deterministic traversal tools (a table of contents → frontmatter → the minimal concept set) and *cannot* silently fall back to keyword search across the file tree.
+
+The unit Kosha produces is a **conformant OKF bundle**: a directory of Markdown concepts plus `index.md`/`log.md`, portable and tool-neutral by construction. Delete Kosha and the bundle still works in any editor or agent.
+
+---
+
+## Status
+
+Version `0.1.0` — MVP. The success contract is gated by an automated acceptance harness and currently **passes** on the reference corpus (`bundles/northwind`):
+
+| Criterion | Result |
+|---|---|
+| Hybrid token cost < RAG at matched quality, latency within margin | **PASS** — 602 vs 865 tokens-per-recall; recall 1.00 vs 0.62 |
+| Duplicate-rate ≈ 0 after repeated ingests | **PASS** — re-ingesting 12 concepts → 0 create / 12 update |
+| Fidelity preserved across ≥20 sequential ingests | **PASS** — no edit-drift |
+| Contradictions resolved-or-escalated, 0 silent overwrites | **PASS** — 12/12 handled |
+
+Reproduce with `uv run kosha bench acceptance`. Full report: [`ACCEPTANCE_REPORT.md`](ACCEPTANCE_REPORT.md).
+
+---
+
+## How it works
+
+Kosha is a **deterministic spine with isolated, eval-gated LLM surfaces**. Code owns control flow, file I/O, conformance, and traversal; the model is called only for contained judgments, each behind a typed interface and a measured eval suite.
+
+| Stage | Deterministic (code) | LLM surface (eval-gated) |
+|---|---|---|
+| Ingest | fetch, parse, normalize to text | — |
+| Extract | chunking, file I/O | "what concepts are in this source" |
+| **Dedup / resolve** | embedding nearest-neighbor + ID resolution | "is candidate X the same concept as existing Y" |
+| Merge | apply edits via the claim layer, bump `timestamp` | "how should this update the body" |
+| Link | resolve / validate bundle-relative paths | "which concepts relate" |
+| Contradiction | structured diff of old vs new claims | "do these materially conflict" |
+| Index/Log | regenerate `index.md`, append `log.md` | — |
+| Conform | 3-rule validator + granularity lint | — |
+| Consume | parse frontmatter, walk graph, load minimal set | the agent's own reasoning |
+
+```mermaid
+flowchart LR
+    SRC["Sources<br/>URLs · markdown"] --> PROD
+    subgraph PROD["Producer loop (deterministic + LLM surfaces)"]
+        direction TB
+        EXT["extract"] --> RES["dedup/resolve"] --> MRG["merge"] --> LNK["link"] --> CON["contradiction"] --> IDX["index/log"]
+    end
+    PROD --> GATE["Plan → Approve → Validate"]
+    GATE --> GIT["Git bundle<br/>(branch · commit · backup)"]
+    GIT --> MCP["MCP traversal server<br/>find_concepts · list_index<br/>read_frontmatter · load_concept · follow_links"]
+    MCP --> AGENT["Any agent"]
+    GIT -. "embedding index (derived)" .-> RES
+```
+
+The retrieval win is **progressive disclosure with an embedding jump**: a consumer pays tokens for a table of contents plus one or two leaf concepts — not the corpus — and the embedding jump keeps wall-clock latency competitive with RAG.
+
+Design rationale, market position, and risks live in [`docs/overview.md`](docs/overview.md) and [`docs/system_design.md`](docs/system_design.md).
+
+---
+
+## Install
+
+Requires Python ≥ 3.12.
+
+### From PyPI
+
+```bash
+pip install kosha            # core engine + CLI
+pip install 'kosha[mcp]'     # plus the MCP consumer server
+
+uv tool install 'kosha[mcp]' # or install as an isolated CLI tool
+```
+
+```bash
+kosha --version              # kosha 0.1.0
+```
+
+The `mcp` extra pulls in the consumer server (`kosha-mcp`); the core install is enough to run the maintenance loop and the validator.
+
+### From source
+
+The Northwind reference corpus, the benchmark/eval suites, and the test data live in the repository, not the wheel. Clone to use them or to develop Kosha:
+
+```bash
+git clone https://github.com/Mathews-Tom/Kosha.git && cd Kosha
+uv sync                      # runtime + dev tooling (ruff, mypy, pytest, mcp)
+uv run kosha --version
+```
+
+---
+
+## Quickstart
+
+Once installed, point Kosha at your own OKF bundle and sources:
+
+```bash
+# Validate any OKF bundle (conformance gate; exit != 0 blocks CI)
+kosha validate path/to/bundle
+
+# Preview an ingest — extract, dedup, link — without writing anything
+kosha ingest path/to/markdown-folder --bundle path/to/bundle --dry-run
+
+# Serve a bundle to an agent over MCP (traversal tools only)
+KOSHA_BUNDLE=path/to/bundle kosha-mcp
+```
+
+From a source checkout you can also drive the bundled Northwind reference corpus and the benchmark:
+
+```bash
+uv run kosha validate bundles/northwind          # OK: ... is OKF-conformant
+uv run kosha bench --bundle bundles/northwind    # hybrid vs RAG vs long-context
+uv run kosha bench acceptance                    # gate the 4 MVP success criteria
+```
+
+Full walkthrough: [`docs/getting-started.md`](docs/getting-started.md).
+
+---
+
+## The two surfaces
+
+### Produce — `kosha ingest`
+
+Point Kosha at a source folder. It runs the full maintenance loop behind a **plan → approve → commit** gate: extract → dedup → merge → link → contradiction → regenerate indexes → assemble a reviewable plan → route by graduated autonomy → write on approval as a Git commit on an ingest branch.
+
+- **Dedup** decides UPDATE-not-CREATE so the same concept is never duplicated.
+- **Claim-level supersede** retires a specific statement instead of rewriting the whole body, so fidelity holds across many ingests.
+- **Contradiction resolution** applies a deterministic policy (temporal → source-authority → escalate); nothing is silently overwritten.
+- **Graduated autonomy** auto-applies high-confidence/low-impact changes and reserves human attention for contradictions, deletions, and low-confidence calls.
+
+### Consume — `kosha-mcp`
+
+A FastMCP server exposes exactly five traversal tools and **no raw-text search**, so a connected agent structurally cannot grep the corpus:
+
+| Tool | Purpose |
+|---|---|
+| `find_concepts(query, k)` | Embedding jump — land near the answer |
+| `list_index(scope)` | Structured directory listing (progressive disclosure) |
+| `read_frontmatter(concept_id)` | Cheap peek: type, description, effective dates |
+| `load_concept(concept_id, asof)` | Body filtered to in-force, access-permitted claims |
+| `follow_links(concept_id)` | Out-links + backlinks to expand the neighborhood |
+
+Without MCP, the same protocol ships as an `AGENTS.md` fragment ([`consumer/AGENTS.fragment.md`](consumer/AGENTS.fragment.md)) and a skill ([`consumer/kosha-traversal/SKILL.md`](consumer/kosha-traversal/SKILL.md)). Integration guide: [`docs/mcp-integration.md`](docs/mcp-integration.md).
+
+---
+
+## CLI overview
+
+| Command | What it does |
+|---|---|
+| `kosha validate <bundle>` | OKF v0.1 conformance gate (exit ≠ 0 blocks merge) |
+| `kosha ingest <source> [--bundle] [--dry-run] [--yes] [--authority]` | Run the maintenance loop behind the approve gate |
+| `kosha bench [--bundle] [--report]` | Premise-validation retrieval benchmark (hybrid vs RAG vs long-context) |
+| `kosha bench acceptance [--bundle] [--report]` | Gate the four MVP success criteria (exit 0 iff all pass) |
+| `kosha eval extract\|dedup\|merge\|relate\|contradict` | Score one LLM surface against seed labels |
+
+Full reference: [`docs/cli-reference.md`](docs/cli-reference.md).
+
+---
+
+## Configuration
+
+Kosha defaults to deterministic, offline **local providers** (`lexical-hash-256` embeddings, `extractive-3` generation) so the benchmark and tests run reproducibly with no network. Set environment variables to opt into any OpenAI-compatible HTTP endpoint (OpenAI, Ollama, llama.cpp, …):
+
+```bash
+export KOSHA_GEN_BASE_URL=https://api.openai.com/v1
+export KOSHA_GEN_MODEL=gpt-4o-mini
+export KOSHA_GEN_API_KEY=sk-...
+```
+
+A base URL without its companion model is an error, never a silent fallback. Full matrix: [`docs/configuration.md`](docs/configuration.md).
+
+---
+
+## Project layout
+
+```text
+src/kosha/
+  cli.py            # argparse entrypoint (kosha)
+  model.py          # Pydantic bundle/concept/claim model
+  okf/              # OKF parse / serialize / load (byte-stable round-trip)
+  ingest/           # URL + local-markdown adapters → RawDoc
+  extract.py        # concept extraction (LLM surface)
+  dedup/            # embedding NN + LLM adjudication + split
+  merge/            # claim-level supersede + create/update + reconstruct
+  link/             # cross-link discovery + path validation
+  contradiction/    # detect → temporal → authority → escalate
+  indexlog/         # index.md regeneration + log.md append
+  plan/, approve/   # change plan + graduated-autonomy routing
+  pipeline/         # end-to-end ingest wiring + writer
+  index/            # derived embedding index
+  providers/        # model-neutral embedding/generation providers
+  validate.py, lint.py  # 3-rule conformance + granularity lint
+  mcp/              # traversal service + FastMCP server + fallback fragments
+  bench/, eval/     # benchmark harness + per-surface eval suites
+bundles/northwind/  # reference OKF corpus (the canonical demo)
+labels/             # seed labels for the eval suites
+consumer/           # AGENTS.md fragment + traversal skill (non-MCP fallback)
+docs/               # overview, system design, and user guides
+tests/, evals/      # pytest suites + per-surface eval gates
+```
+
+---
+
+## Documentation
+
+| Document | For |
+|---|---|
+| [Getting started](docs/getting-started.md) | First bundle, first ingest, first agent connection |
+| [CLI reference](docs/cli-reference.md) | Every command, flag, and exit code |
+| [MCP integration](docs/mcp-integration.md) | Connecting agents; the traversal contract |
+| [Configuration](docs/configuration.md) | Providers, environment variables |
+| [Authoring bundles](docs/authoring-bundles.md) | Concept frontmatter, links, temporal validity, conformance |
+| [System overview](docs/overview.md) | Thesis, market, risks, moat |
+| [System design](docs/system_design.md) | Architecture, data model, workflows |
+| [Contributing](CONTRIBUTING.md) | Dev setup, the gate set, conventions |
+
+---
+
+## License
+
+[Apache-2.0](LICENSE).
