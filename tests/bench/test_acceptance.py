@@ -14,12 +14,18 @@ from pathlib import Path
 from kosha.bench.acceptance import (
     AcceptanceCriterion,
     AcceptanceReport,
+    FidelityReport,
+    duplicate_rate_criterion,
+    fidelity_criterion,
+    measure_fidelity,
     render_acceptance_report,
     run_acceptance,
     token_latency_criterion,
 )
 from kosha.bench.runner import BenchReport, StrategyResult
 from kosha.cli import main
+from kosha.dedup import LexicalAdjudicator
+from kosha.eval.dedup import DuplicateRateReport, evaluate_duplicate_rate
 from kosha.okf import load_bundle
 from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
 
@@ -180,3 +186,73 @@ def test_cli_bench_acceptance_writes_report(tmp_path: Path) -> None:
     assert code == 0
     assert report_path.is_file()
     assert "MVP Acceptance Report" in report_path.read_text(encoding="utf-8")
+
+
+def test_duplicate_rate_criterion_passes_on_northwind() -> None:
+    bundle = load_bundle(NORTHWIND)
+    duplicates = evaluate_duplicate_rate(
+        bundle, LexicalEmbeddingProvider(), adjudicator=LexicalAdjudicator()
+    )
+    criterion = duplicate_rate_criterion(duplicates)
+    assert criterion.passed
+    assert duplicates.created == 0
+
+
+def test_duplicate_rate_criterion_fails_on_any_create() -> None:
+    # A single CREATE on a re-ingest is a duplicate the resolver missed.
+    duplicates = DuplicateRateReport(concept_count=12, created=1, updated=11)
+    assert not duplicate_rate_criterion(duplicates).passed
+
+
+def test_measure_fidelity_holds_across_20_ingests(tmp_path: Path) -> None:
+    report = measure_fidelity(tmp_path)
+    assert report.ingests == 20
+    assert report.drift_free
+    assert report.reconstructable
+    assert report.survivor_intact
+    assert report.conformant
+    assert report.latest_reflected
+    assert report.ok
+
+
+def test_measure_fidelity_manages_its_own_scratch_dir() -> None:
+    # Called with no work_dir, the harness still runs the full conformance check.
+    report = measure_fidelity(ingests=20)
+    assert report.ok
+
+
+def test_fidelity_criterion_fails_below_the_ingest_threshold() -> None:
+    short = FidelityReport(
+        ingests=5,
+        drift_free=True,
+        reconstructable=True,
+        survivor_intact=True,
+        conformant=True,
+        latest_reflected=True,
+    )
+    assert not fidelity_criterion(short).passed
+
+
+def test_fidelity_criterion_fails_on_any_drift() -> None:
+    drifted = FidelityReport(
+        ingests=20,
+        drift_free=False,
+        reconstructable=True,
+        survivor_intact=True,
+        conformant=True,
+        latest_reflected=True,
+    )
+    assert not fidelity_criterion(drifted).passed
+
+
+def test_run_acceptance_gates_all_three_criteria() -> None:
+    bundle = load_bundle(NORTHWIND)
+    report = run_acceptance(
+        bundle,
+        LexicalEmbeddingProvider(),
+        ExtractiveGenerationProvider(),
+        bundle_path=str(NORTHWIND),
+    )
+    ids = [c.id for c in report.criteria]
+    assert ids == ["C1-token-latency", "C2-duplicate-rate", "C3-fidelity"]
+    assert report.passed
