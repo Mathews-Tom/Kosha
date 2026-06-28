@@ -14,6 +14,7 @@ from kosha.merge.claims import (
     make_claim,
     mint_claim_id,
     render_body,
+    render_claim_set,
     supersede_claim,
 )
 from kosha.merge.create import (
@@ -57,6 +58,7 @@ __all__ = [
     "parse_target",
     "reconstruct_from_sources",
     "render_body",
+    "render_claim_set",
     "segment_statements",
     "source_citation",
     "supersede_claim",

@@ -121,10 +121,22 @@ def render_body(claims: Sequence[Claim]) -> str:
     de-duplicated). This is a pure function of the claims: the only source of the
     body, so a body that differs from it has drifted (see ``reconstruct``).
     """
-    current = current_claims(claims)
-    body = "\n\n".join(claim.statement for claim in current)
+    return render_claim_set(current_claims(claims))
+
+
+def render_claim_set(claims: Sequence[Claim]) -> str:
+    """Project an already-selected claim set to an OKF body, in the given order.
+
+    The pure projection both :func:`render_body` and the consumer surface's
+    temporal filter share. :func:`render_body` pre-selects the current chain heads;
+    ``load_concept`` pre-selects the in-force claims (via
+    :func:`kosha.contradiction.effective_claims`) so an expired claim never renders.
+    Each statement becomes a paragraph in the supplied order, followed by one
+    de-duplicated ``# Citations`` section.
+    """
+    body = "\n\n".join(claim.statement for claim in claims)
     citations: list[str] = []
-    for claim in current:
+    for claim in claims:
         for citation in claim.citations:
             if citation not in citations:
                 citations.append(citation)
