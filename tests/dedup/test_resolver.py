@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import pytest
 
-from kosha.dedup.adjudicate import Adjudication, Verdict
+from kosha.dedup.adjudicate import Adjudication, CandidateConcept, Selection, Verdict
 from kosha.dedup.resolver import Action, resolve_draft
 from kosha.extract import ConceptDraft
 from kosha.index import EmbeddingIndex
@@ -42,6 +44,28 @@ class _ForbiddenAdjudicator:
 
     def adjudicate(self, draft_text: str, candidate_text: str) -> Adjudication:
         raise AssertionError("adjudicator must not be called outside the ambiguous band")
+
+
+class _SelectAdjudicator:
+    """Selects a preset concept among candidates; records the candidates seen."""
+
+    def __init__(self, concept_id: str | None, verdict: Verdict) -> None:
+        self._concept_id = concept_id
+        self._verdict = verdict
+        self.seen: list[str] = []
+
+    @property
+    def name(self) -> str:
+        return "select-fixed"
+
+    def adjudicate(self, draft_text: str, candidate_text: str) -> Adjudication:
+        raise AssertionError("multi-candidate routing must use select, not adjudicate")
+
+    def select(
+        self, draft_text: str, candidates: Sequence[CandidateConcept]
+    ) -> Selection:
+        self.seen = [candidate.concept_id for candidate in candidates]
+        return Selection(self._concept_id, self._verdict, f"select-fixed:{self._verdict.value}")
 
 
 def _index(*texts: str) -> tuple[EmbeddingIndex, dict[str, str]]:
@@ -114,3 +138,28 @@ def test_empty_index_creates() -> None:
         _draft("anything at all"), index, {}, adjudicator=_ForbiddenAdjudicator()
     )
     assert decision.action is Action.CREATE
+
+
+_REFUND = "Refunds post to the original card after approval."
+_MEMBERSHIP = "Membership tiers grant escalating loyalty perks."
+
+
+def test_multi_candidate_select_updates_the_chosen_concept() -> None:
+    # Three concepts in the band: the resolver must offer the whole top-k to
+    # select, which can pick a concept that is not the rank-0 neighbor.
+    index, texts = _index(_CAND_BAND, _REFUND, _MEMBERSHIP)
+    adj = _SelectAdjudicator("c2", Verdict.SAME)
+    decision = resolve_draft(_draft(_DRAFT_BAND), index, texts, adjudicator=adj)
+    assert decision.action is Action.UPDATE
+    assert decision.concept_id == "c2"
+    assert decision.adjudicated is True
+    assert len(adj.seen) > 1  # the top-k was passed, not just the top-1
+
+
+def test_multi_candidate_select_creates_on_none() -> None:
+    index, texts = _index(_CAND_BAND, _REFUND)
+    adj = _SelectAdjudicator(None, Verdict.DIFFERENT)
+    decision = resolve_draft(_draft(_DRAFT_BAND), index, texts, adjudicator=adj)
+    assert decision.action is Action.CREATE
+    assert decision.concept_id is None
+    assert decision.adjudicated is True
