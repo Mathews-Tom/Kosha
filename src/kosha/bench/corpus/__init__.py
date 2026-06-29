@@ -12,17 +12,23 @@ from __future__ import annotations
 from kosha.bench.corpus.stdlib import (
     CORPUS_NAME,
     MODULES,
+    MODULES_XL,
+    SCALED_MAX_MEMBERS,
     CorpusEntry,
     CorpusStats,
     build_corpus,
+    build_scaled_corpus,
     collect_entries,
 )
 
 __all__ = [
     "CORPUS_NAME",
     "MODULES",
+    "MODULES_XL",
+    "SCALED_MAX_MEMBERS",
     "CorpusEntry",
     "CorpusStats",
     "build_corpus",
+    "build_scaled_corpus",
     "collect_entries",
 ]

@@ -123,7 +123,9 @@ class CorpusStats:
     module_count: int
 
 
-def collect_entries(modules: tuple[str, ...] = MODULES) -> list[CorpusEntry]:
+def collect_entries(
+    modules: tuple[str, ...] = MODULES, *, max_members: int = MAX_MEMBERS_PER_MODULE
+) -> list[CorpusEntry]:
     """Render every selected stdlib member into a :class:`CorpusEntry` (sorted)."""
     entries: list[CorpusEntry] = []
     for module_name in modules:
@@ -131,13 +133,18 @@ def collect_entries(modules: tuple[str, ...] = MODULES) -> list[CorpusEntry]:
             module = importlib.import_module(module_name)
         except ImportError:
             continue
-        entries.extend(_module_entries(module_name, module))
+        entries.extend(_module_entries(module_name, module, max_members))
     return entries
 
 
-def build_corpus(out_dir: Path, *, modules: tuple[str, ...] = MODULES) -> CorpusStats:
+def build_corpus(
+    out_dir: Path,
+    *,
+    modules: tuple[str, ...] = MODULES,
+    max_members: int = MAX_MEMBERS_PER_MODULE,
+) -> CorpusStats:
     """Write the rendered corpus as a conformant OKF bundle under ``out_dir``."""
-    entries = collect_entries(modules)
+    entries = collect_entries(modules, max_members=max_members)
     out_dir.mkdir(parents=True, exist_ok=True)
     module_dirs: set[str] = set()
     for entry in entries:
@@ -157,8 +164,35 @@ def build_corpus(out_dir: Path, *, modules: tuple[str, ...] = MODULES) -> Corpus
     return CorpusStats(concept_count=len(entries), module_count=len(module_dirs))
 
 
-def _module_entries(module_name: str, module: object) -> list[CorpusEntry]:
-    members = _select_members(module_name, module)[:MAX_MEMBERS_PER_MODULE]
+# Spike S2 scaled corpus: the same mechanical render over a much wider stdlib
+# surface, for the Gate-0 v2 at-scale regime (>=1k concepts). Modules removed in
+# later CPython minors are skipped (ImportError) rather than listed conditionally.
+SCALED_MAX_MEMBERS = 24
+_SCALED_EXTRA_MODULES: tuple[str, ...] = (
+    "abc", "asyncio", "binascii", "bz2", "codecs", "colorsys", "compileall",
+    "dataclasses", "dis", "email.message", "enum", "filecmp", "fileinput",
+    "ftplib", "getpass", "gettext", "glob", "graphlib", "imaplib", "importlib",
+    "inspect", "keyword", "linecache", "locale", "lzma", "mailbox",
+    "modulefinder", "netrc", "numbers", "pickletools", "pkgutil", "platform",
+    "plistlib", "poplib", "py_compile", "quopri", "reprlib", "rlcompleter",
+    "runpy", "sched", "selectors", "shelve", "signal", "smtplib", "sqlite3",
+    "ssl", "stat", "stringprep", "subprocess", "symtable", "tarfile", "threading",
+    "token", "tomllib", "traceback", "venv", "warnings", "wave", "weakref",
+    "xml.etree.ElementTree", "zipapp", "zoneinfo",
+)
+# Curated breadth, deduped while preserving the base order.
+MODULES_XL: tuple[str, ...] = tuple(dict.fromkeys(MODULES + _SCALED_EXTRA_MODULES))
+
+
+def build_scaled_corpus(out_dir: Path) -> CorpusStats:
+    """Write the wide (>=1k-concept) Gate-0 v2 corpus as a conformant bundle."""
+    return build_corpus(out_dir, modules=MODULES_XL, max_members=SCALED_MAX_MEMBERS)
+
+
+def _module_entries(
+    module_name: str, module: object, max_members: int = MAX_MEMBERS_PER_MODULE
+) -> list[CorpusEntry]:
+    members = _select_members(module_name, module)[:max_members]
     concept_ids = [cid for cid, _, _, _ in members]
     out: list[CorpusEntry] = []
     for position, (concept_id, title, description, doc) in enumerate(members):
