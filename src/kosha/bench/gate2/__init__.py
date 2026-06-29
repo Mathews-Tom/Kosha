@@ -11,6 +11,14 @@ holds the pure aggregation.
 
 from __future__ import annotations
 
+from kosha.bench.gate2.contradictions import (
+    SCALES,
+    ContradictionCase,
+    build_contradiction_set,
+    load_contradictions,
+    regimes_present,
+    write_contradictions,
+)
 from kosha.bench.gate2.criterion import (
     MIN_CONTRADICTIONS,
     MIN_EMBEDDINGS,
@@ -32,6 +40,11 @@ from kosha.bench.gate2.harness import (
     aggregate_cell,
     run_gate2,
 )
+from kosha.bench.gate2.histories import (
+    bury_in_body,
+    deep_history_claims,
+    render_history,
+)
 
 __all__ = [
     "MIN_CONTRADICTIONS",
@@ -41,16 +54,25 @@ __all__ = [
     "QUALITY_AXES",
     "QUALITY_MARGIN",
     "REGIMES",
+    "SCALES",
     "AxisDistribution",
     "AxisSample",
     "CellMeasure",
     "CellResult",
     "CellSample",
+    "ContradictionCase",
     "Distribution",
     "Gate2Criterion",
     "Gate2Report",
     "aggregate",
     "aggregate_cell",
+    "build_contradiction_set",
+    "bury_in_body",
+    "deep_history_claims",
+    "load_contradictions",
+    "regimes_present",
+    "render_history",
     "run_distribution",
     "run_gate2",
+    "write_contradictions",
 ]
