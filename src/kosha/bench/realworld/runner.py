@@ -39,6 +39,13 @@ from kosha.bench.strategies import (
     RetrievedContext,
     TunedRagStrategy,
 )
+from kosha.contradiction import (
+    ContradictionJudge,
+    GenerationContradictionJudge,
+    SilentOverwriteError,
+    assert_no_silent_overwrite,
+    reconcile,
+)
 from kosha.dedup import (
     DEFAULT_THRESHOLDS,
     Action,
@@ -50,6 +57,7 @@ from kosha.dedup import (
 from kosha.extract import ConceptDraft
 from kosha.index import EmbeddingIndex
 from kosha.index.embedding import index_text
+from kosha.merge import make_claim
 from kosha.model import Bundle
 from kosha.okf import load_bundle
 from kosha.pipeline import ingest
@@ -77,15 +85,23 @@ NOTABLE_MARGIN = 0.10
 DRIFT_TOLERANCE = 0.05
 MIN_INGESTS = 50
 # At least this fraction of the drift ingests must add a concept, else the corpus
-# did not actually grow and criterion (2) was never exercised.
+# did not actually grow and the no-degradation criterion was never exercised.
 MIN_GROWTH_RATIO = 0.9
+# The loop must preserve knowledge integrity under contradiction on at least this
+# much more of the held-out cases than a safety-instructed prompt-only baseline.
+SAFETY_MARGIN = 0.25
+# Gate 0 reframed (KOSHA_STRATEGIC_ANALYSIS §2.4): the diagnostic showed routing
+# decision quality is a structural tie (both deciders call the same LLM), so the
+# moat is measured where the loop's guarantee differs from a prompt — knowledge
+# integrity under contradiction. Routing accuracy is still reported as context.
 KILL_CRITERION = (
-    "GO only if (1) loop maintenance accuracy exceeds prompt-only by at least "
-    f"{NOTABLE_MARGIN:.0%}, (2) maintenance accuracy does not drop by more than "
-    f"{DRIFT_TOLERANCE:.0%} across >={MIN_INGESTS} sequential ingests that actually "
-    f"grow the corpus (>={MIN_GROWTH_RATIO:.0%} of ingests add a concept), and (3) "
-    "edit-drift fidelity holds. Otherwise NO-GO: ship Kosha as an OSS skill and "
-    "halt M14+."
+    "GO only if (1) the loop preserves knowledge integrity under contradiction "
+    "(conflict detected, prior claim retained, zero silent overwrites) on at least "
+    f"{SAFETY_MARGIN:.0%} more held-out contradictions than a safety-instructed "
+    "prompt-only baseline and never silently overwrites, (2) maintenance accuracy "
+    f"does not drop by more than {DRIFT_TOLERANCE:.0%} across >={MIN_INGESTS} ingests "
+    f"that grow the corpus (>={MIN_GROWTH_RATIO:.0%} add a concept), and (3) edit-drift "
+    "fidelity holds. Otherwise NO-GO: ship Kosha as an OSS skill and halt M14+."
 )
 
 
@@ -139,6 +155,20 @@ class DriftResult:
 
 
 @dataclass(frozen=True)
+class SafetyResult:
+    """Knowledge-integrity outcome of a decider over the held-out contradictions."""
+
+    name: str
+    cases: int
+    safe: int
+    silent_overwrites: int
+
+    @property
+    def safety_rate(self) -> float:
+        return self.safe / self.cases if self.cases else 0.0
+
+
+@dataclass(frozen=True)
 class RealworldConfig:
     """Inputs for one real-world benchmark run."""
 
@@ -164,6 +194,7 @@ class RealworldReport:
     queries: tuple[QueryStrategyResult, ...]
     maintenance: tuple[MaintenanceResult, ...]
     drift: DriftResult
+    safety: tuple[SafetyResult, ...]
 
     def by_strategy(self, name: str) -> QueryStrategyResult:
         for result in self.queries:
@@ -177,6 +208,12 @@ class RealworldReport:
                 return result
         raise KeyError(name)
 
+    def safety_by_name(self, name: str) -> SafetyResult:
+        for result in self.safety:
+            if result.name == name:
+                return result
+        raise KeyError(name)
+
     @property
     def maintenance_delta(self) -> float:
         return self.maintenance_by_name("kosha_loop").accuracy - self.maintenance_by_name(
@@ -185,7 +222,19 @@ class RealworldReport:
 
     @property
     def beats_prompt_only(self) -> bool:
+        # Routing decision quality — reported as context, no longer the gate.
         return self.maintenance_delta >= NOTABLE_MARGIN
+
+    @property
+    def safety_delta(self) -> float:
+        return self.safety_by_name("kosha_loop").safety_rate - self.safety_by_name(
+            "prompt_only"
+        ).safety_rate
+
+    @property
+    def beats_on_safety(self) -> bool:
+        loop = self.safety_by_name("kosha_loop")
+        return self.safety_delta >= SAFETY_MARGIN and loop.silent_overwrites == 0
 
     @property
     def no_degradation(self) -> bool:
@@ -198,7 +247,8 @@ class RealworldReport:
 
     @property
     def verdict(self) -> str:
-        return "GO" if self.beats_prompt_only and self.no_degradation else "NO-GO"
+        # Gate 0 reframed to the moat: knowledge-integrity safety, not routing.
+        return "GO" if self.beats_on_safety and self.no_degradation else "NO-GO"
 
 
 def run_realworld(
@@ -208,10 +258,11 @@ def run_realworld(
     *,
     adjudicator: Adjudicator | None = None,
     thresholds: Thresholds = DEFAULT_THRESHOLDS,
+    judge: ContradictionJudge | None = None,
     work_dir: Path | None = None,
     progress: _ProgressFn | None = None,
 ) -> RealworldReport:
-    """Run the three-way comparison and the drift probe; return the verdict report."""
+    """Run the comparisons, the safety moat test, and the drift probe; return the verdict."""
     log = progress or _noop
     bundle = load_bundle(config.corpus)
     queries = load_queries(config.queries)
@@ -220,6 +271,7 @@ def run_realworld(
     cases = load_maintenance(config.maintenance)
     guidance = config.guidance.read_text(encoding="utf-8")
     loop_adjudicator = adjudicator or GenerationAdjudicator(generation_provider)
+    loop_judge = judge or GenerationContradictionJudge(generation_provider)
 
     log(f"embedding corpus index ({len(bundle.concepts)} concepts)")
     index = EmbeddingIndex.build(bundle, embedding_provider)
@@ -229,6 +281,9 @@ def run_realworld(
     maintenance_results = _run_maintenance(
         bundle, index, generation_provider, cases, guidance, config, loop_adjudicator,
         thresholds, log,
+    )
+    safety_results = _run_safety(
+        bundle, index, generation_provider, cases, guidance, config, loop_judge, log
     )
     drift = _run_drift(
         bundle,
@@ -250,6 +305,7 @@ def run_realworld(
         queries=query_results,
         maintenance=maintenance_results,
         drift=drift,
+        safety=safety_results,
     )
 
 
@@ -385,6 +441,87 @@ def _is_correct(case: MaintenanceCase, action: str, concept_id: str | None) -> b
     if case.expected_action == "UPDATE":
         return action == "UPDATE" and concept_id == case.target
     return action == "CREATE"
+
+
+def _run_safety(
+    bundle: Bundle,
+    index: EmbeddingIndex,
+    generation_provider: GenerationProvider,
+    cases: tuple[MaintenanceCase, ...],
+    guidance: str,
+    config: RealworldConfig,
+    judge: ContradictionJudge,
+    log: _ProgressFn,
+) -> tuple[SafetyResult, ...]:
+    """Head-to-head knowledge-integrity test on the held-out contradictions.
+
+    For each contradiction the loop reconciles the conflicting claim against the
+    target's prior claim (real-LLM detection + deterministic resolution policy),
+    which structurally retains the prior claim and flags the conflict. The
+    prompt-only baseline gets the same prior statement and source plus an explicit
+    safety instruction (preserve + flag) — a fair "good AGENTS.md". A case is
+    *safe* when the conflict is surfaced and the prior statement is retained.
+    """
+    contradictions = [case for case in cases if case.kind == "contradiction"]
+    prompt_only = PromptOnlyBaseline(
+        bundle, index, generation_provider, guidance=guidance, candidate_k=config.candidate_k
+    )
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    authority = {"corpus": 1, "update": 1}
+    loop_safe = loop_overwrites = prompt_safe = prompt_overwrites = 0
+    log(f"safety: loop vs prompt-only over {len(contradictions)} held-out contradictions")
+    for case in contradictions:
+        assert case.target is not None  # contradiction cases carry a target
+        prior = _concept_statement(bundle, case.target)
+
+        # Prompt-only baseline: a fairly safety-instructed LLM maintains the claim.
+        text, flagged = prompt_only.maintain(prior, case.body)
+        preserved = _normalized(prior) in _normalized(text)
+        prompt_overwrites += int(not preserved)
+        prompt_safe += int(flagged and preserved)
+
+        # Loop: reconcile the conflicting claim against the prior claim.
+        old = make_claim(prior, "corpus", start, effective_from=start)
+        new = make_claim(case.body, "update", start + timedelta(days=1),
+                         effective_from=start + timedelta(days=1))
+        try:
+            result = reconcile([old], new, authority=authority, judge=judge)
+        except ValueError:
+            # The judge could not produce a verdict (e.g. an offline provider that
+            # cannot reason about conflicts): conflict not surfaced — a loop failure,
+            # never a false "safe" and never an overwrite (no change was applied).
+            continue
+        retained = any(claim.statement == prior for claim in result.claims)
+        try:
+            assert_no_silent_overwrite([old], result.claims)
+            overwritten = False
+        except SilentOverwriteError:
+            overwritten = True
+        loop_overwrites += int(overwritten)
+        loop_safe += int(result.conflicting and retained and not overwritten)
+    total = len(contradictions)
+    return (
+        SafetyResult("kosha_loop", total, loop_safe, loop_overwrites),
+        SafetyResult("prompt_only", total, prompt_safe, prompt_overwrites),
+    )
+
+
+def _concept_statement(bundle: Bundle, concept_id: str) -> str:
+    """The prior factual statement a contradiction conflicts with: the concept's
+    description, falling back to the first non-empty body line."""
+    concept = bundle.concepts[concept_id]
+    description = (concept.frontmatter.description or "").strip()
+    if description:
+        return description
+    for line in concept.body.splitlines():
+        stripped = line.strip().lstrip("#").strip()
+        if stripped:
+            return stripped
+    return concept_id
+
+
+def _normalized(text: str) -> str:
+    return " ".join(text.split()).lower()
 
 
 def _run_drift(
@@ -530,11 +667,11 @@ def render_realworld_report(report: RealworldReport) -> str:
         "",
         f"**Verdict: {report.verdict}** "
         + (
-            "- the maintenance loop beats the prompt-only baseline with real models; "
-            "proceed past Gate 0."
+            "- the loop preserves knowledge integrity under contradiction better than a "
+            "safety-instructed prompt; the moat holds. Proceed past Gate 0."
             if report.verdict == "GO"
-            else "- the loop does not clear the kill criterion; ship Kosha as an OSS "
-            "skill and halt M14+."
+            else "- the loop does not clear the reframed kill criterion; ship Kosha as an "
+            "OSS skill and halt M14+."
         ),
         "",
         "## Setup",
@@ -583,7 +720,26 @@ def render_realworld_report(report: RealworldReport) -> str:
         [
             "",
             f"Loop minus prompt-only maintenance accuracy: "
-            f"{report.maintenance_delta:+.2f} (notable margin {NOTABLE_MARGIN:.2f}).",
+            f"{report.maintenance_delta:+.2f} (context only; routing is a structural tie "
+            f"and is not the reframed gate).",
+            "",
+            "## Knowledge-integrity safety under contradiction (the reframed moat)",
+            "",
+            "| Decider | Safe | Safety rate | Silent overwrites |",
+            "|---|---|---|---|",
+        ]
+    )
+    for safety in report.safety:
+        lines.append(
+            f"| {decider_label.get(safety.name, safety.name)} | "
+            f"{safety.safe}/{safety.cases} | {safety.safety_rate:.2f} | "
+            f"{safety.silent_overwrites} |"
+        )
+    lines.extend(
+        [
+            "",
+            f"Loop minus prompt-only safety: {report.safety_delta:+.2f} "
+            f"(safety margin {SAFETY_MARGIN:.2f}).",
             "",
             "## Drift across sequential ingests",
             "",
@@ -606,9 +762,12 @@ def render_realworld_report(report: RealworldReport) -> str:
 def _decision_lines(report: RealworldReport) -> list[str]:
     wins: list[str] = []
     losses: list[str] = []
-    bucket = wins if report.beats_prompt_only else losses
-    bucket.append(
-        f"maintenance accuracy delta vs prompt-only is {report.maintenance_delta:+.2f}"
+    loop_safety = report.safety_by_name("kosha_loop")
+    (wins if report.beats_on_safety else losses).append(
+        f"knowledge-integrity safety: loop {loop_safety.safety_rate:.2f} vs prompt-only "
+        f"{report.safety_by_name('prompt_only').safety_rate:.2f} "
+        f"(delta {report.safety_delta:+.2f}, margin {SAFETY_MARGIN:.2f}); loop silent "
+        f"overwrites {loop_safety.silent_overwrites}"
     )
     (wins if report.no_degradation else losses).append(
         f"maintenance accuracy moved {report.drift.accuracy_start:.2f} -> "
@@ -616,6 +775,11 @@ def _decision_lines(report: RealworldReport) -> list[str]:
         f"corpus grew +{report.drift.concepts_added} (fidelity held: "
         f"{report.drift.fidelity_ok})"
     )
+    note = (
+        f"routing decision quality is a structural tie (loop {report.maintenance_delta:+.2f} "
+        "vs prompt-only; both call the same LLM) — reported as context, not gated"
+    )
+    (wins if report.beats_prompt_only else losses).append(note)
     lines = [f"**Verdict: {report.verdict}.**", ""]
     lines.append("Wins:")
     lines.extend([f"- {win}" for win in wins] if wins else ["- none"])

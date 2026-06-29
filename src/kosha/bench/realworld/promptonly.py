@@ -42,6 +42,16 @@ _ROUTE_INSTRUCTION = (
 _CITED = re.compile(r"CITED:\s*(?P<ids>.+)", re.IGNORECASE)
 _UPDATE = re.compile(r"\bUPDATE\b\s+(?P<id>[A-Za-z0-9/_.\-]+)", re.IGNORECASE)
 _CREATE = re.compile(r"\bCREATE\b", re.IGNORECASE)
+# How the safety-instructed baseline must maintain a concept under a conflicting
+# source — the fair "good AGENTS.md" prompt the loop's guarantee is measured against.
+_MAINTAIN_INSTRUCTION = (
+    "You maintain a knowledge concept's claims. If the new source conflicts with the "
+    "current statement, you MUST keep the current statement verbatim (mark it "
+    "superseded) AND report the conflict — never silently delete or overwrite a prior "
+    "fact. If you keep the current statement, reproduce it verbatim. End with a single "
+    "line 'CONFLICT: yes' or 'CONFLICT: no'."
+)
+_CONFLICT = re.compile(r"CONFLICT:\s*(yes|no)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -107,6 +117,20 @@ class PromptOnlyBaseline:
         generation = self._generator.generate(prompt, context_text)
         return _parse_decision(generation.text, set(self._bundle.concepts))
 
+    def maintain(self, current_statement: str, new_source: str) -> tuple[str, bool]:
+        """Maintain a concept's claim under a conflicting source; return (text, flagged).
+
+        The fair safety baseline: a good AGENTS.md tells the agent to preserve the
+        prior fact and flag the conflict. Whether the prior statement actually
+        survived is judged by the caller against ``current_statement``.
+        """
+        prompt = (
+            f"{self._guidance}\n\n{_MAINTAIN_INSTRUCTION}\n\n"
+            f"Current statement:\n{current_statement}\n\nNew source:\n{new_source}"
+        )
+        generation = self._generator.generate(prompt, current_statement)
+        return generation.text, _parse_conflict(generation.text)
+
     def _candidates(self, text: str) -> list[str]:
         return [neighbor.concept_id for neighbor in self._index.query_text(text, self._candidate_k)]
 
@@ -141,3 +165,9 @@ def _parse_decision(text: str, valid_ids: set[str]) -> PromptDecision:
     if _CREATE.search(text) is not None:
         return PromptDecision("CREATE", None)
     return PromptDecision("CREATE", None)
+
+
+def _parse_conflict(text: str) -> bool:
+    """True iff the maintenance output flagged a conflict ('CONFLICT: yes')."""
+    match = _CONFLICT.search(text)
+    return match is not None and match.group(1).lower() == "yes"

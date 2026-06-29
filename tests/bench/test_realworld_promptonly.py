@@ -88,6 +88,24 @@ def test_route_parses_create_for_new_knowledge() -> None:
     assert decision.concept_id is None
 
 
+def test_maintain_flags_conflict_and_returns_text() -> None:
+    baseline = _baseline(
+        "Standard returns are accepted within 30 days.\nCONFLICT: yes"
+    )
+    text, flagged = baseline.maintain(
+        "Standard returns are accepted within 30 days.",
+        "Standard returns are now 60 days.",
+    )
+    assert flagged is True
+    assert "30 days" in text
+
+
+def test_maintain_reports_no_conflict() -> None:
+    baseline = _baseline("Updated.\nCONFLICT: no")
+    _text, flagged = baseline.maintain("A.", "B.")
+    assert flagged is False
+
+
 def test_parse_cited_filters_unknown_ids() -> None:
     valid = {"policies/refunds", "policies/shipping"}
     cited = _parse_cited("Answer.\nCITED: policies/refunds, made/up, policies/shipping", valid)

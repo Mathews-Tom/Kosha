@@ -392,6 +392,11 @@ def _run_bench_realworld(args: argparse.Namespace) -> int:
         f"vs prompt-only {report.maintenance_by_name('prompt_only').accuracy:.2f} "
         f"(delta {report.maintenance_delta:+.2f})"
     )
+    print(
+        f"Contradiction safety: loop {report.safety_by_name('kosha_loop').safety_rate:.2f} "
+        f"vs prompt-only {report.safety_by_name('prompt_only').safety_rate:.2f} "
+        f"(delta {report.safety_delta:+.2f}, the reframed Gate-0 moat)"
+    )
     print(f"Gate 0 verdict: {report.verdict}")
     if args.report is not None:
         args.report.write_text(render_realworld_report(report), encoding="utf-8")
