@@ -16,11 +16,19 @@ from kosha.bench.realworld.labels import (
     load_maintenance,
     load_queries,
 )
+from kosha.bench.realworld.promptonly import (
+    PromptDecision,
+    PromptOnlyAnswer,
+    PromptOnlyBaseline,
+)
 
 __all__ = [
     "MAINTENANCE_ACTIONS",
     "MAINTENANCE_KINDS",
     "MaintenanceCase",
+    "PromptDecision",
+    "PromptOnlyAnswer",
+    "PromptOnlyBaseline",
     "load_maintenance",
     "load_queries",
 ]
