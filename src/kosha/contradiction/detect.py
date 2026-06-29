@@ -175,6 +175,41 @@ class GenerationContradictionJudge:
         return Judgment(verdict, f"{self.name}: {generation.text.strip()}")
 
 
+class DetectorGatedJudge:
+    """Code-owned detectors gating an LLM judge (spike S2, Track C).
+
+    The deterministic structured-diff signals are authoritative: when they flag a
+    material conflict (a differing value or a polarity flip on a shared subject)
+    the verdict is CONFLICT *without* an LLM call, so a conflict the model would
+    miss still forces :func:`~kosha.contradiction.escalate.reconcile`. A clearly
+    unrelated pair (subject overlap below the threshold) or an identical
+    restatement is settled NONE, also without an LLM call. Only the ambiguous
+    residue — a shared subject with no value or polarity cue (unit, partial,
+    paraphrase) — is deferred to the wrapped LLM judge. The prompt-only baseline
+    has no such gate; that asymmetry is the loop's structural edge Gate-0 v2
+    measures, and it bounds the LLM to at most one call per claim comparison.
+    """
+
+    def __init__(self, llm: ContradictionJudge, *, overlap_min: float = 0.4) -> None:
+        if not 0.0 <= overlap_min <= 1.0:
+            raise ValueError("overlap_min must be in [0, 1]")
+        self._llm = llm
+        self._overlap_min = overlap_min
+        self._detector = LexicalContradictionJudge(overlap_min)
+
+    @property
+    def name(self) -> str:
+        return f"detector-gated({self._llm.name})"
+
+    def judge(self, old: str, new: str, signal: DiffSignal) -> Judgment:
+        detected = self._detector.judge(old, new, signal)
+        if detected.verdict is ContradictionVerdict.CONFLICT:
+            return Judgment(detected.verdict, f"detector forced: {detected.rationale}")
+        if signal.identical or signal.subject_overlap < self._overlap_min:
+            return detected  # restatement or unrelated: settled without an LLM call
+        return self._llm.judge(old, new, signal)
+
+
 def detect_conflict(
     old_claim: Claim, new_statement: str, *, judge: ContradictionJudge
 ) -> ConflictReport:

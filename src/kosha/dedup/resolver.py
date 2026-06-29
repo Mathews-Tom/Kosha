@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from kosha.dedup.adjudicate import Adjudicator, CandidateConcept, Verdict
 from kosha.dedup.candidates import draft_query_text, nearest_candidates
@@ -25,7 +26,10 @@ from kosha.dedup.decision import (
 )
 from kosha.dedup.split import Splitter
 from kosha.extract import ConceptDraft
-from kosha.index.embedding import EmbeddingIndex
+from kosha.index.embedding import EmbeddingIndex, Neighbor
+
+if TYPE_CHECKING:
+    from kosha.contradiction.detect import ContradictionJudge
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,7 @@ def resolve_draft(
     thresholds: Thresholds = DEFAULT_THRESHOLDS,
     k: int = 5,
     splitter: Splitter | None = None,
+    detector: ContradictionJudge | None = None,
 ) -> Decision:
     """Resolve ``draft`` to UPDATE / CREATE / SPLIT against ``index``.
 
@@ -96,6 +101,11 @@ def resolve_draft(
         assert target_id is not None  # SAME implies a chosen concept
         return Decision(Action.UPDATE, target_id, routing.score, rationale, adjudicated=True)
     if verdict is Verdict.DIFFERENT:
+        gated = _detector_override(detector, draft_text, routing.candidate, concept_texts)
+        if gated is not None:
+            return Decision(
+                Action.UPDATE, gated[0], routing.score, f"{rationale}; {gated[1]}", adjudicated=True
+            )
         return Decision(Action.CREATE, None, routing.score, rationale, adjudicated=True)
     if splitter is None:
         return Decision(Action.SPLIT, None, routing.score, rationale, adjudicated=True)
@@ -108,9 +118,39 @@ def resolve_draft(
             thresholds=thresholds,
             k=k,
             splitter=None,
+            detector=detector,
         )
         for sub_draft in splitter(draft)
     )
     return Decision(
         Action.SPLIT, None, routing.score, rationale, adjudicated=True, parts=parts
     )
+
+
+def _detector_override(
+    detector: ContradictionJudge | None,
+    draft_text: str,
+    candidate: Neighbor | None,
+    concept_texts: Mapping[str, str],
+) -> tuple[str, str] | None:
+    """Force UPDATE when a code-owned detector flags a conflict the LLM called DIFFERENT.
+
+    The adjudicator answered "different concept", but a deterministic structured-
+    diff conflict against the nearest concept means the draft *contradicts* it
+    rather than being novel — route it to that concept so the conflict reaches
+    reconcile() instead of being filed as a new concept. Off by default; only the
+    gated loop path passes a detector, so existing routing is unchanged.
+    """
+    if detector is None or candidate is None:
+        return None
+    # Local import: dedup is imported during kosha.contradiction init, so a
+    # module-level contradiction import here would close an import cycle.
+    from kosha.contradiction.detect import ContradictionVerdict, structured_diff
+
+    prior = concept_texts.get(candidate.concept_id, "")
+    if not prior:
+        return None
+    judgment = detector.judge(prior, draft_text, structured_diff(prior, draft_text))
+    if judgment.verdict is ContradictionVerdict.CONFLICT:
+        return candidate.concept_id, f"detector-gated conflict: {judgment.rationale}"
+    return None
