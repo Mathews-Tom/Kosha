@@ -1,0 +1,26 @@
+{"id": "q-json-serialize", "question": "How do I serialize a Python object to a JSON-formatted string?", "required_concepts": ["json/dumps"], "answer_keywords": ["json"]}
+{"id": "q-json-parse", "question": "How do I parse a JSON string into Python objects?", "required_concepts": ["json/loads"], "answer_keywords": ["deserialize"]}
+{"id": "q-temp-dir", "question": "How do I create a temporary directory that cleans itself up afterwards?", "required_concepts": ["tempfile/TemporaryDirectory"], "answer_keywords": ["temporary", "directory"]}
+{"id": "q-base64-encode", "question": "How do I Base64-encode a bytes object?", "required_concepts": ["base64/b64encode"], "answer_keywords": ["base64"]}
+{"id": "q-base64-urlsafe", "question": "How do I Base64-encode bytes so they are safe inside a URL?", "required_concepts": ["base64/urlsafe_b64encode"], "answer_keywords": ["url"]}
+{"id": "q-dedent", "question": "How do I remove the common leading whitespace from every line of a text block?", "required_concepts": ["textwrap/dedent"], "answer_keywords": ["whitespace"]}
+{"id": "q-shorten", "question": "How do I collapse and truncate a string to fit a given width?", "required_concepts": ["textwrap/shorten"], "answer_keywords": ["truncate"]}
+{"id": "q-wrap", "question": "How do I wrap a paragraph of text into a list of lines?", "required_concepts": ["textwrap/wrap"], "answer_keywords": ["wrap"]}
+{"id": "q-lru-cache", "question": "How do I cache a function's most recently used results?", "required_concepts": ["functools/lru_cache"], "answer_keywords": ["cache"]}
+{"id": "q-reduce", "question": "How do I reduce an iterable to a single value using a function?", "required_concepts": ["functools/reduce"], "answer_keywords": ["reduce"]}
+{"id": "q-namedtuple", "question": "How do I create a tuple subclass with named fields?", "required_concepts": ["functools/namedtuple"], "answer_keywords": ["named"]}
+{"id": "q-deepcopy", "question": "How do I make a deep copy of an arbitrary Python object?", "required_concepts": ["copy/deepcopy"], "answer_keywords": ["deep"]}
+{"id": "q-bisect", "question": "How do I find the index at which to insert an item to keep a list sorted?", "required_concepts": ["bisect/bisect"], "answer_keywords": ["index", "sorted"]}
+{"id": "q-counter", "question": "How do I count how many times each hashable item appears?", "required_concepts": ["collections/Counter"], "answer_keywords": ["count"]}
+{"id": "q-chainmap", "question": "How do I group several dictionaries into a single view?", "required_concepts": ["collections/ChainMap"], "answer_keywords": ["dicts"]}
+{"id": "q-groupby", "question": "How do I group consecutive items of an iterable by a computed key?", "required_concepts": ["itertools/groupby"], "answer_keywords": ["consecutive"]}
+{"id": "q-product", "question": "How do I compute the cartesian product of several iterables?", "required_concepts": ["itertools/product"], "answer_keywords": ["product"]}
+{"id": "q-islice", "question": "How do I take a slice of an iterator without materializing it?", "required_concepts": ["itertools/islice"], "answer_keywords": ["islice"]}
+{"id": "q-copytree", "question": "How do I recursively copy a directory tree to a new location?", "required_concepts": ["shutil/copytree"], "answer_keywords": ["recursively"]}
+{"id": "q-move", "question": "How do I move a file or directory to another location?", "required_concepts": ["shutil/move"], "answer_keywords": ["move"]}
+{"id": "q-findall", "question": "How do I get all non-overlapping regular-expression matches in a string?", "required_concepts": ["re/findall"], "answer_keywords": ["matches"]}
+{"id": "q-sub", "question": "How do I replace regular-expression matches in a string?", "required_concepts": ["re/sub"], "answer_keywords": ["replac"]}
+{"id": "q-zipfile", "question": "How do I open and read the members of a zip archive?", "required_concepts": ["zipfile/ZipFile"], "answer_keywords": ["zip"]}
+{"id": "q-isclose", "question": "How do I check whether two floating-point numbers are approximately equal?", "required_concepts": ["math/isclose"], "answer_keywords": ["close"]}
+{"id": "q-pbkdf2", "question": "How do I derive a cryptographic key from a password?", "required_concepts": ["hashlib/pbkdf2_hmac"], "answer_keywords": ["password"]}
+{"id": "q-token-bytes", "question": "How do I generate a cryptographically secure random byte string?", "required_concepts": ["secrets/token_bytes"], "answer_keywords": ["random"]}
