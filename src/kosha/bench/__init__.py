@@ -42,6 +42,7 @@ from kosha.bench.strategies import (
     RagStrategy,
     RetrievalStrategy,
     RetrievedContext,
+    TunedRagStrategy,
 )
 
 __all__ = [
@@ -61,6 +62,7 @@ __all__ = [
     "RetrievalStrategy",
     "RetrievedContext",
     "StrategyResult",
+    "TunedRagStrategy",
     "evaluate_granularity",
     "evaluate_kill_signals",
     "evaluate_threshold_only",
