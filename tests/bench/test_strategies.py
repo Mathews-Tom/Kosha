@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from kosha.bench import HybridStrategy, LongContextStrategy, RagStrategy
+from kosha.bench import HybridStrategy, LongContextStrategy, RagStrategy, TunedRagStrategy
+from kosha.bench.strategies import _Bm25
 from kosha.index import EmbeddingIndex
 from kosha.okf import load_bundle
 from kosha.providers import LexicalEmbeddingProvider, count_tokens
@@ -60,3 +61,53 @@ def test_strategies_are_deterministic() -> None:
     hybrid, rag, long_context = _fixtures()
     for strategy in (hybrid, rag, long_context):
         assert strategy.retrieve(_QUERY) == strategy.retrieve(_QUERY)
+
+
+def _tuned_rag() -> TunedRagStrategy:
+    bundle = load_bundle(NORTHWIND)
+    return TunedRagStrategy(bundle, LexicalEmbeddingProvider())
+
+
+def test_tuned_rag_surfaces_the_answer_concept() -> None:
+    ctx = _tuned_rag().retrieve(_QUERY)
+    assert "policies/returns/gold-members" in ctx.concept_ids
+    assert ctx.round_trips == 1
+    assert ctx.concept_ids
+
+
+def test_tuned_rag_respects_calibrated_top_k() -> None:
+    bundle = load_bundle(NORTHWIND)
+    strategy = TunedRagStrategy(bundle, LexicalEmbeddingProvider(), top_k=3, pool_k=10)
+    ctx = strategy.retrieve(_QUERY)
+    # top_k caps the chunks chosen, so distinct concepts cannot exceed it.
+    assert len(ctx.concept_ids) <= 3
+
+
+def test_tuned_rag_is_deterministic() -> None:
+    strategy = _tuned_rag()
+    assert strategy.retrieve(_QUERY) == strategy.retrieve(_QUERY)
+
+
+def test_tuned_rag_rejects_bad_parameters() -> None:
+    bundle = load_bundle(NORTHWIND)
+    provider = LexicalEmbeddingProvider()
+    for kwargs in ({"top_k": 0}, {"pool_k": 0}, {"chunk_words": 0}, {"pool_k": 2, "top_k": 5}):
+        try:
+            TunedRagStrategy(bundle, provider, **kwargs)
+        except ValueError:
+            continue
+        raise AssertionError(f"expected ValueError for {kwargs}")
+
+
+def test_bm25_ranks_matching_documents_higher() -> None:
+    docs = [
+        ["gold", "members", "return", "window", "is", "forty", "five", "days"],
+        ["standard", "shipping", "takes", "three", "business", "days"],
+    ]
+    bm25 = _Bm25(docs)
+    query = ["gold", "return", "window"]
+    assert bm25.score(query, 0) > bm25.score(query, 1)
+
+
+def test_bm25_empty_corpus_scores_zero() -> None:
+    assert _Bm25([]).score(["anything"], 0) == 0.0
