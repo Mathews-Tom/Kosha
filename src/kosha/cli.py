@@ -20,12 +20,15 @@ from pathlib import Path
 from kosha import __version__
 from kosha.approve import render_plan, render_routing
 from kosha.bench import (
+    calibrate_thresholds,
+    default_threshold_mismatch,
     evaluate_granularity,
     evaluate_kill_signals,
     evaluate_threshold_only,
     go_no_go,
     load_dedup_pairs,
     load_granularity_labels,
+    render_calibration,
     render_premise_report,
     render_table,
     run_benchmark,
@@ -38,7 +41,7 @@ from kosha.bench.realworld import (
     run_realworld,
 )
 from kosha.contradiction import LexicalContradictionJudge
-from kosha.dedup import LexicalAdjudicator
+from kosha.dedup import DEFAULT_THRESHOLDS, LexicalAdjudicator
 from kosha.eval import (
     evaluate_contradict,
     evaluate_dedup,
@@ -182,6 +185,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write the acceptance report to this path.",
     )
+    calibrate_parser = subparsers.add_parser(
+        "calibrate",
+        help="Fit the dedup thresholds to the configured embedding on the seed labels.",
+    )
+    calibrate_parser.add_argument(
+        "--labels",
+        type=Path,
+        default=_DEDUP_LABELS,
+        help="Seed dedup labels to fit on (default: labels/dedup_seed.jsonl).",
+    )
+    calibrate_parser.add_argument(
+        "--margin",
+        type=float,
+        default=0.02,
+        help="Safety margin past the seed score extremes (default: 0.02).",
+    )
     eval_parser = subparsers.add_parser(
         "eval",
         help="Run an LLM-surface eval suite.",
@@ -295,6 +314,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_eval(args)
     if args.command == "ingest":
         return _run_ingest(args)
+    if args.command == "calibrate":
+        return _run_calibrate(args)
     parser.print_help()
     return 0
 
@@ -377,9 +398,13 @@ def _run_bench_realworld(args: argparse.Namespace) -> int:
     def _progress(message: str) -> None:
         print(f"[realworld] {message}", file=sys.stderr, flush=True)
 
+    embedding_provider = resolve_embedding_provider()
+    mismatch = default_threshold_mismatch(embedding_provider, DEFAULT_THRESHOLDS)
+    if mismatch is not None:
+        print(f"kosha: warning: {mismatch}", file=sys.stderr)
     report = run_realworld(
         config,
-        resolve_embedding_provider(),
+        embedding_provider,
         resolve_generation_provider(),
         progress=_progress,
     )
@@ -402,6 +427,19 @@ def _run_bench_realworld(args: argparse.Namespace) -> int:
         args.report.write_text(render_realworld_report(report), encoding="utf-8")
         print(f"Wrote report to {args.report}")
     return 0 if report.verdict == "GO" else 1
+
+
+def _run_calibrate(args: argparse.Namespace) -> int:
+    """Fit the dedup thresholds to the configured embedding on the seed labels."""
+    if not args.labels.is_file():
+        print(f"kosha: not a labels file: {args.labels}", file=sys.stderr)
+        return 2
+    pairs = load_dedup_pairs(args.labels)
+    calibration = calibrate_thresholds(
+        pairs, resolve_embedding_provider(), margin=args.margin
+    )
+    print(render_calibration(calibration))
+    return 0
 
 
 def _run_bench(bundle_path: Path, report_path: Path | None) -> int:
