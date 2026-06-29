@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tempfile
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -35,8 +36,14 @@ from kosha.bench import (
 )
 from kosha.bench.acceptance import render_acceptance_report, run_acceptance
 from kosha.bench.corpus import CORPUS_NAME, build_corpus
+from kosha.bench.gate2 import MIN_RUNS as GATE2_MIN_RUNS
+from kosha.bench.gate2 import Gate2Criterion, run_gate2
+from kosha.bench.gate2.auditability import run_auditability
+from kosha.bench.gate2.contradictions import load_contradictions
+from kosha.bench.gate2.report import render_gate2_report
 from kosha.bench.realworld import (
     RealworldConfig,
+    build_gate2_measure,
     render_realworld_report,
     run_realworld,
 )
@@ -58,6 +65,7 @@ from kosha.merge import LexicalClaimTargeter
 from kosha.okf import load_bundle
 from kosha.pipeline import ingest
 from kosha.providers import resolve_embedding_provider, resolve_generation_provider
+from kosha.providers.matrix import resolve_provider_matrix
 from kosha.validate import validate_bundle
 
 # Default golden corpus the benchmark runs against, and the seed label files.
@@ -184,6 +192,24 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Write the acceptance report to this path.",
+    )
+    realworld_parser.add_argument(
+        "--gate2",
+        action="store_true",
+        help="Run the pre-registered Gate-0 v2 re-test across the provider matrix.",
+    )
+    realworld_parser.add_argument(
+        "--contradictions",
+        type=Path,
+        default=Path("evals/realworld/contradictions_v2.jsonl"),
+        help="Held-out Gate-0 v2 contradiction set "
+        "(default: evals/realworld/contradictions_v2.jsonl).",
+    )
+    realworld_parser.add_argument(
+        "--runs",
+        type=int,
+        default=GATE2_MIN_RUNS,
+        help=f"Runs per provider cell for the Gate-0 v2 distributions (default: {GATE2_MIN_RUNS}).",
     )
     calibrate_parser = subparsers.add_parser(
         "calibrate",
@@ -382,6 +408,8 @@ def _run_bench_corpus(out_dir: Path) -> int:
 
 def _run_bench_realworld(args: argparse.Namespace) -> int:
     """Run the M13 real-model benchmark; exit 0 on GO, 1 on NO-GO."""
+    if getattr(args, "gate2", False):
+        return _run_bench_gate2(args)
     if not args.corpus.is_dir():
         print(f"kosha: not a bundle directory: {args.corpus}", file=sys.stderr)
         return 2
@@ -425,6 +453,75 @@ def _run_bench_realworld(args: argparse.Namespace) -> int:
     print(f"Gate 0 verdict: {report.verdict}")
     if args.report is not None:
         args.report.write_text(render_realworld_report(report), encoding="utf-8")
+        print(f"Wrote report to {args.report}")
+    return 0 if report.verdict == "GO" else 1
+
+
+def _run_bench_gate2(args: argparse.Namespace) -> int:
+    """Run the pre-registered Gate-0 v2 re-test across the provider matrix.
+
+    Exit 0 on GO (M14+ authorized), 1 on NO-GO (ship-as-skill stands).
+    """
+    if not args.corpus.is_dir():
+        print(f"kosha: not a bundle directory: {args.corpus}", file=sys.stderr)
+        return 2
+    config = RealworldConfig(
+        corpus=args.corpus,
+        queries=args.queries,
+        maintenance=args.maintenance,
+        guidance=args.guidance,
+        contradictions=args.contradictions,
+    )
+
+    def _progress(message: str) -> None:
+        print(f"[gate2] {message}", file=sys.stderr, flush=True)
+
+    criterion = Gate2Criterion.preregistered()
+    matrix = resolve_provider_matrix()
+    cases = load_contradictions(config.contradictions)
+    measure = build_gate2_measure(config)
+    _progress("verifying auditability guarantee + provenance replay")
+    with tempfile.TemporaryDirectory() as scratch:
+        auditability = run_auditability(cases, work_dir=Path(scratch))
+    report = run_gate2(
+        matrix,
+        measure,
+        criterion=criterion,
+        runs=args.runs,
+        audit_verified=auditability.verified,
+        progress=_progress,
+    )
+    concept_count = len(load_bundle(config.corpus).concepts)
+    print("Pre-registered Gate-0 v2 criterion:")
+    print(criterion.describe())
+    print(
+        f"Matrix: {len(report.embeddings)} embeddings x {len(report.generations)} "
+        f"generation models, {report.runs} runs/cell, "
+        f"{len(cases)} held-out contradictions/cell."
+    )
+    for cell in report.cells:
+        for axis in cell.axes:
+            print(
+                f"  {cell.embedding_label} x {cell.generation_label} | {axis.axis}: "
+                f"loop {axis.loop.median:.2f} [{axis.loop.lo:.2f}, {axis.loop.hi:.2f}] vs "
+                f"prompt {axis.prompt.median:.2f} [{axis.prompt.lo:.2f}, {axis.prompt.hi:.2f}] "
+                f"(Δ {axis.median_delta:+.2f}, cleared={axis.cleared(criterion.quality_margin)})"
+            )
+    print(
+        f"Auditability: guarantee verified={auditability.guarantee_verified}, "
+        f"provenance replayable={auditability.provenance_replayable}"
+    )
+    print(f"Gate-0 v2 verdict: {report.verdict}")
+    print(f"M14+ authorized: {report.authorizes_m14}")
+    if report.carrying_axis is not None:
+        print(f"Carrying axis: {report.carrying_axis}")
+    if args.report is not None:
+        args.report.write_text(
+            render_gate2_report(
+                report, auditability, corpus_path=str(config.corpus), concept_count=concept_count
+            ),
+            encoding="utf-8",
+        )
         print(f"Wrote report to {args.report}")
     return 0 if report.verdict == "GO" else 1
 
