@@ -1,0 +1,17 @@
+---
+type: reference
+title: "calendar.Calendar.itermonthdates"
+description: "Return an iterator for one month. The iterator will yield datetime.date"
+tags: ["calendar", "stdlib"]
+---
+# calendar.Calendar.itermonthdates
+
+Return an iterator for one month. The iterator will yield datetime.date
+values and will always iterate through complete weeks, so it will yield
+dates outside the specified month.
+
+## Related
+
+- [itermonthdays](/calendar/Calendar/itermonthdays.md)
+- [itermonthdays2](/calendar/Calendar/itermonthdays2.md)
+- [itermonthdays3](/calendar/Calendar/itermonthdays3.md)

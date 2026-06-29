@@ -1,0 +1,40 @@
+---
+type: reference
+title: "random.Random.sample"
+description: "Chooses k unique random elements from a population sequence."
+tags: ["random", "stdlib"]
+---
+# random.Random.sample
+
+Chooses k unique random elements from a population sequence.
+
+Returns a new list containing elements from the population while
+leaving the original population unchanged.  The resulting list is
+in selection order so that all sub-slices will also be valid random
+samples.  This allows raffle winners (the sample) to be partitioned
+into grand prize and second place winners (the subslices).
+
+Members of the population need not be hashable or unique.  If the
+population contains repeats, then each occurrence is a possible
+selection in the sample.
+
+Repeated elements can be specified one at a time or with the optional
+counts parameter.  For example:
+
+    sample(['red', 'blue'], counts=[4, 2], k=5)
+
+is equivalent to:
+
+    sample(['red', 'red', 'red', 'red', 'blue', 'blue'], k=5)
+
+To choose a sample from a range of integers, use range() for the
+population argument.  This is especially fast and space efficient
+for sampling from a large population:
+
+    sample(range(10000000), 60)
+
+## Related
+
+- [seed](/random/Random/seed.md)
+- [triangular](/random/Random/triangular.md)
+- [uniform](/random/Random/uniform.md)

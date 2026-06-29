@@ -1,0 +1,24 @@
+---
+type: reference
+title: "functools.reduce"
+description: "reduce(function, iterable[, initial]) -> value"
+tags: ["functools", "stdlib"]
+---
+# functools.reduce
+
+reduce(function, iterable[, initial]) -> value
+
+Apply a function of two arguments cumulatively to the items of an iterable, from left to right.
+
+This effectively reduces the iterable to a single value.  If initial is present,
+it is placed before the items of the iterable in the calculation, and serves as
+a default when the iterable is empty.
+
+For example, reduce(lambda x, y: x+y, [1, 2, 3, 4, 5])
+calculates ((((1 + 2) + 3) + 4) + 5).
+
+## Related
+
+- [singledispatch](/functools/singledispatch.md)
+- [singledispatchmethod](/functools/singledispatchmethod.md)
+- [register](/functools/singledispatchmethod/register.md)

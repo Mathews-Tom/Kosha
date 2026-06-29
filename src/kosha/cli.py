@@ -31,6 +31,7 @@ from kosha.bench import (
     run_benchmark,
 )
 from kosha.bench.acceptance import render_acceptance_report, run_acceptance
+from kosha.bench.corpus import CORPUS_NAME, build_corpus
 from kosha.contradiction import LexicalContradictionJudge
 from kosha.dedup import LexicalAdjudicator
 from kosha.eval import (
@@ -113,6 +114,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Write the acceptance report to this path.",
+    )
+    corpus_parser = bench_subparsers.add_parser(
+        "corpus",
+        help="Regenerate the external stdlib benchmark corpus (DEVELOPMENT_PLAN M13).",
+    )
+    corpus_parser.add_argument(
+        "--out",
+        type=Path,
+        default=Path(f"bundles/{CORPUS_NAME}"),
+        help=f"Output bundle directory (default: bundles/{CORPUS_NAME}).",
     )
     eval_parser = subparsers.add_parser(
         "eval",
@@ -218,6 +229,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "bench":
         if getattr(args, "bench_command", None) == "acceptance":
             return _run_bench_acceptance(args.bundle, args.report)
+        if getattr(args, "bench_command", None) == "corpus":
+            return _run_bench_corpus(args.out)
         return _run_bench(args.bundle, args.report)
     if args.command == "eval":
         return _run_eval(args)
@@ -275,6 +288,15 @@ def _run_validate(bundle: Path) -> int:
         print(f"FAIL: {bundle} is not OKF-conformant ({errors} error(s), {warnings} warning(s))")
         return 1
     print(f"OK: {bundle} is OKF-conformant ({warnings} warning(s))")
+    return 0
+
+def _run_bench_corpus(out_dir: Path) -> int:
+    """Regenerate the external stdlib benchmark corpus into ``out_dir``."""
+    stats = build_corpus(out_dir)
+    print(
+        f"Wrote {stats.concept_count} concepts across {stats.module_count} modules "
+        f"to {out_dir}"
+    )
     return 0
 
 
