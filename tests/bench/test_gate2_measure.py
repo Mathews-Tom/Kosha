@@ -40,3 +40,24 @@ def test_detector_gate_gives_the_loop_offline_detection() -> None:
     detection = next(axis for axis in sample.axes if axis.axis == "detection_recall")
     assert detection.loop > 0.0
     assert detection.loop >= detection.prompt
+
+
+def test_runs_replay_across_embeddings_when_runs_per_cell_set() -> None:
+    # The quality axes are embedding-independent, so a later embedding cell replays
+    # the generation's runs instead of re-calling the LLM to the same effect.
+    measure = build_gate2_measure(_config(), runs_per_cell=2)
+    embed_a, embed_b = LexicalEmbeddingProvider(), LexicalEmbeddingProvider()
+    gen = ExtractiveGenerationProvider()
+    a0, a1 = measure(embed_a, gen), measure(embed_a, gen)
+    b0, b1 = measure(embed_b, gen), measure(embed_b, gen)
+    assert b0 is a0
+    assert b1 is a1
+
+
+def test_no_runs_per_cell_recomputes_each_call() -> None:
+    measure = build_gate2_measure(_config())
+    embed = LexicalEmbeddingProvider()
+    gen = ExtractiveGenerationProvider()
+    first, second = measure(embed, gen), measure(embed, gen)
+    # Distinct objects: no replay cache when runs_per_cell is unset.
+    assert first is not second

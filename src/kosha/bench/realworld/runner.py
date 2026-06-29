@@ -538,7 +538,9 @@ def _normalized(text: str) -> str:
     return " ".join(text.split()).lower()
 
 
-def build_gate2_measure(config: RealworldConfig) -> CellMeasure:
+def build_gate2_measure(
+    config: RealworldConfig, *, runs_per_cell: int | None = None
+) -> CellMeasure:
     """Bind a Gate-0 v2 per-cell measurement over the regime-spanning held-out set.
 
     Scores two quality axes per provider cell for one run:
@@ -552,14 +554,23 @@ def build_gate2_measure(config: RealworldConfig) -> CellMeasure:
 
     Each held-out case is materialized into its at-scale context: a single prior
     claim, a prior buried in a long body, or a prior buried in a deep in-force
-    history. The corpus index is embedded once per embedding provider and reused
-    across runs and generation models.
+    history. The corpus index is embedded once per embedding provider and reused.
+
+    Both quality axes are computed on ``(prior, new)`` claim pairs directly and
+    never touch retrieval, so they are independent of the embedding provider. When
+    ``runs_per_cell`` is given, a generation's runs are computed once (under the
+    first embedding) and replayed for later embeddings rather than re-calling the
+    LLM to the same effect: the matrix still exercises every embedding (each builds
+    its index) while the LLM cost scales with the generation x run grid, not the
+    full cell grid. Leave it ``None`` (the default) for independent per-cell runs.
     """
     bundle = load_bundle(config.corpus)
     guidance = config.guidance.read_text(encoding="utf-8")
     cases = load_contradictions(config.contradictions)
     regimes = regimes_present(cases)
     indexes: dict[int, EmbeddingIndex] = {}
+    by_generation: dict[int, list[CellSample]] = {}
+    seen: dict[int, int] = {}
 
     def measure(
         embedding: EmbeddingProvider, generation: GenerationProvider
@@ -568,6 +579,11 @@ def build_gate2_measure(config: RealworldConfig) -> CellMeasure:
         if index is None:
             index = EmbeddingIndex.build(bundle, embedding)
             indexes[id(embedding)] = index
+        bank = by_generation.setdefault(id(generation), [])
+        call = seen.get(id(generation), 0)
+        seen[id(generation)] = call + 1
+        if runs_per_cell is not None and call >= runs_per_cell:
+            return bank[call % runs_per_cell]
         prompt_only = PromptOnlyBaseline(
             bundle, index, generation, guidance=guidance, candidate_k=config.candidate_k
         )
@@ -592,12 +608,14 @@ def build_gate2_measure(config: RealworldConfig) -> CellMeasure:
             AxisSample("detection_recall", _rate(loop_detected, n), _rate(prompt_detected, n)),
             AxisSample("safety_rate", _rate(loop_safe, n), _rate(prompt_safe, n)),
         )
-        return CellSample(
+        sample = CellSample(
             axes=axes,
             loop_silent_overwrites=loop_overwrites,
             contradictions=n,
             regimes=regimes,
         )
+        bank.append(sample)
+        return sample
 
     return measure
 
