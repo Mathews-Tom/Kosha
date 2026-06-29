@@ -30,6 +30,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from kosha.bench.acceptance import measure_fidelity
+from kosha.bench.gate2.harness import AxisSample, CellMeasure, CellSample
 from kosha.bench.grade import grade_query
 from kosha.bench.queries import BenchQuery
 from kosha.bench.realworld.labels import MaintenanceCase, load_maintenance, load_queries
@@ -527,6 +528,46 @@ def _concept_statement(bundle: Bundle, concept_id: str) -> str:
 
 def _normalized(text: str) -> str:
     return " ".join(text.split()).lower()
+
+
+def build_gate2_measure(config: RealworldConfig) -> CellMeasure:
+    """Bind a Gate-0 v2 per-cell measurement over the held-out contradictions.
+
+    The returned callable scores one provider cell's quality axes for one run.
+    Today it measures the knowledge-integrity ``safety_rate`` (loop reconcile vs
+    a safety-instructed prompt) on the held-out contradiction set; later spike
+    stages add the scaled set, the detection-recall axis, and the auditability
+    guarantee. The corpus index is embedded once per embedding provider and
+    reused across runs and generation models so the matrix costs one embed per
+    embedding, not one per cell-run.
+    """
+    bundle = load_bundle(config.corpus)
+    cases = load_maintenance(config.maintenance)
+    guidance = config.guidance.read_text(encoding="utf-8")
+    indexes: dict[int, EmbeddingIndex] = {}
+
+    def measure(
+        embedding: EmbeddingProvider, generation: GenerationProvider
+    ) -> CellSample:
+        index = indexes.get(id(embedding))
+        if index is None:
+            index = EmbeddingIndex.build(bundle, embedding)
+            indexes[id(embedding)] = index
+        judge = GenerationContradictionJudge(generation)
+        loop, prompt = _run_safety(
+            bundle, index, generation, cases, guidance, config, judge, _noop
+        )
+        axes = (
+            AxisSample("safety_rate", loop.safety_rate, prompt.safety_rate),
+        )
+        return CellSample(
+            axes=axes,
+            loop_silent_overwrites=loop.silent_overwrites,
+            contradictions=loop.cases,
+            regimes=(),
+        )
+
+    return measure
 
 
 def _run_drift(

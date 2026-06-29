@@ -29,6 +29,7 @@ from kosha.bench.realworld.runner import (
     RealworldConfig,
     RealworldReport,
     SafetyResult,
+    build_gate2_measure,
     render_realworld_report,
     run_realworld,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "RealworldConfig",
     "RealworldReport",
     "SafetyResult",
+    "build_gate2_measure",
     "load_maintenance",
     "load_queries",
     "render_realworld_report",

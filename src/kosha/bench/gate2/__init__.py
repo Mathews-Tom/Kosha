@@ -4,8 +4,9 @@ Gate-0 v2 re-opens the Gate-0 question after M13 tied on a tiny, clean held-out
 set: *does the maintenance loop beat a good prompt on a buyer-relevant axis at
 scale?* The bar — margin, sample size, regimes, provider matrix — is fixed in
 :mod:`kosha.bench.gate2.criterion` BEFORE any measurement so the verdict cannot
-be tuned to the result. :mod:`kosha.bench.gate2.distribution` holds the pure
-N-run aggregation the criterion reads.
+be tuned to the result. :mod:`kosha.bench.gate2.harness` runs the matrix over N
+runs to fold out default-sampling noise; :mod:`kosha.bench.gate2.distribution`
+holds the pure aggregation.
 """
 
 from __future__ import annotations
@@ -24,6 +25,13 @@ from kosha.bench.gate2.criterion import (
     Gate2Report,
 )
 from kosha.bench.gate2.distribution import Distribution, aggregate, run_distribution
+from kosha.bench.gate2.harness import (
+    AxisSample,
+    CellMeasure,
+    CellSample,
+    aggregate_cell,
+    run_gate2,
+)
 
 __all__ = [
     "MIN_CONTRADICTIONS",
@@ -34,10 +42,15 @@ __all__ = [
     "QUALITY_MARGIN",
     "REGIMES",
     "AxisDistribution",
+    "AxisSample",
+    "CellMeasure",
     "CellResult",
+    "CellSample",
     "Distribution",
     "Gate2Criterion",
     "Gate2Report",
     "aggregate",
+    "aggregate_cell",
     "run_distribution",
+    "run_gate2",
 ]
