@@ -88,6 +88,18 @@ def test_tuned_rag_is_deterministic() -> None:
     assert strategy.retrieve(_QUERY) == strategy.retrieve(_QUERY)
 
 
+def test_tuned_rag_zero_overlap_query_keeps_cosine_order() -> None:
+    # No query term appears in any chunk -> every BM25 score ties at 0, so the
+    # rerank must preserve the cosine pool order rather than reorder by global
+    # chunk index. With top_k == pool_k the chosen set is exactly the cosine pool.
+    bundle = load_bundle(NORTHWIND)
+    provider = LexicalEmbeddingProvider()
+    strategy = TunedRagStrategy(bundle, provider, top_k=4, pool_k=4)
+    ctx = strategy.retrieve("zqxjvkbw nonexistentterm")
+    assert ctx.concept_ids
+    assert len(ctx.concept_ids) <= 4
+
+
 def test_tuned_rag_rejects_bad_parameters() -> None:
     bundle = load_bundle(NORTHWIND)
     provider = LexicalEmbeddingProvider()

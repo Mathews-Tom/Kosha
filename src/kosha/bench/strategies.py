@@ -177,10 +177,16 @@ class TunedRagStrategy:
             key=lambda i: (-_cosine(query_vec, self._vectors[i]), i),
         )
         pool = by_cosine[: self._pool_k]
-        # Stage 2: BM25 rerank the pool, then take the calibrated top-k.
+        # Stage 2: BM25 rerank the pool, then take the calibrated top-k. Ties
+        # break by pool position so equal-BM25 chunks (e.g. the all-zero case when
+        # no query term appears) keep cosine rank instead of jumping to a global
+        # chunk index.
         query_terms = tokenize(query)
-        reranked = sorted(pool, key=lambda i: (-self._bm25.score(query_terms, i), i))
-        chosen = reranked[: self._top_k]
+        order = sorted(
+            range(len(pool)),
+            key=lambda p: (-self._bm25.score(query_terms, pool[p]), p),
+        )
+        chosen = [pool[p] for p in order[: self._top_k]]
         concept_ids: list[str] = []
         for i in chosen:
             _append_unique(concept_ids, self._chunks[i].concept_id)
