@@ -32,6 +32,11 @@ from kosha.bench import (
 )
 from kosha.bench.acceptance import render_acceptance_report, run_acceptance
 from kosha.bench.corpus import CORPUS_NAME, build_corpus
+from kosha.bench.realworld import (
+    RealworldConfig,
+    render_realworld_report,
+    run_realworld,
+)
 from kosha.contradiction import LexicalContradictionJudge
 from kosha.dedup import LexicalAdjudicator
 from kosha.eval import (
@@ -124,6 +129,58 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path(f"bundles/{CORPUS_NAME}"),
         help=f"Output bundle directory (default: bundles/{CORPUS_NAME}).",
+    )
+    realworld_parser = bench_subparsers.add_parser(
+        "realworld",
+        help="Run the M13 real-model, held-out benchmark and record the go/no-go verdict.",
+    )
+    realworld_parser.add_argument(
+        "--corpus",
+        type=Path,
+        default=Path(f"bundles/{CORPUS_NAME}"),
+        help=f"External corpus bundle (default: bundles/{CORPUS_NAME}).",
+    )
+    realworld_parser.add_argument(
+        "--queries",
+        type=Path,
+        default=Path("evals/realworld/queries.jsonl"),
+        help="Held-out query set (default: evals/realworld/queries.jsonl).",
+    )
+    realworld_parser.add_argument(
+        "--maintenance",
+        type=Path,
+        default=Path("evals/realworld/maintenance.jsonl"),
+        help="Held-out maintenance cases (default: evals/realworld/maintenance.jsonl).",
+    )
+    realworld_parser.add_argument(
+        "--guidance",
+        type=Path,
+        default=Path("consumer/AGENTS.fragment.md"),
+        help="AGENTS fragment given to the prompt-only baseline.",
+    )
+    realworld_parser.add_argument(
+        "--ingests",
+        type=int,
+        default=50,
+        help="Sequential ingests in the drift probe (default: 50).",
+    )
+    realworld_parser.add_argument(
+        "--seed-concepts",
+        type=int,
+        default=150,
+        help="Corpus concepts seeded into the drift bundle (default: 150).",
+    )
+    realworld_parser.add_argument(
+        "--max-queries",
+        type=int,
+        default=None,
+        help="Cap the held-out queries evaluated (default: all).",
+    )
+    realworld_parser.add_argument(
+        "--report",
+        type=Path,
+        default=None,
+        help="Write the acceptance report to this path.",
     )
     eval_parser = subparsers.add_parser(
         "eval",
@@ -231,6 +288,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_bench_acceptance(args.bundle, args.report)
         if getattr(args, "bench_command", None) == "corpus":
             return _run_bench_corpus(args.out)
+        if getattr(args, "bench_command", None) == "realworld":
+            return _run_bench_realworld(args)
         return _run_bench(args.bundle, args.report)
     if args.command == "eval":
         return _run_eval(args)
@@ -298,6 +357,46 @@ def _run_bench_corpus(out_dir: Path) -> int:
         f"to {out_dir}"
     )
     return 0
+
+
+def _run_bench_realworld(args: argparse.Namespace) -> int:
+    """Run the M13 real-model benchmark; exit 0 on GO, 1 on NO-GO."""
+    if not args.corpus.is_dir():
+        print(f"kosha: not a bundle directory: {args.corpus}", file=sys.stderr)
+        return 2
+    config = RealworldConfig(
+        corpus=args.corpus,
+        queries=args.queries,
+        maintenance=args.maintenance,
+        guidance=args.guidance,
+        ingests=args.ingests,
+        drift_seed_concepts=args.seed_concepts,
+        max_queries=args.max_queries,
+    )
+
+    def _progress(message: str) -> None:
+        print(f"[realworld] {message}", file=sys.stderr, flush=True)
+
+    report = run_realworld(
+        config,
+        resolve_embedding_provider(),
+        resolve_generation_provider(),
+        progress=_progress,
+    )
+    print(
+        f"Real-model benchmark over {args.corpus} ({report.concept_count} concepts, "
+        f"embed={report.embedding_provider}, gen={report.generation_provider})"
+    )
+    print(
+        f"Maintenance accuracy: loop {report.maintenance_by_name('kosha_loop').accuracy:.2f} "
+        f"vs prompt-only {report.maintenance_by_name('prompt_only').accuracy:.2f} "
+        f"(delta {report.maintenance_delta:+.2f})"
+    )
+    print(f"Gate 0 verdict: {report.verdict}")
+    if args.report is not None:
+        args.report.write_text(render_realworld_report(report), encoding="utf-8")
+        print(f"Wrote report to {args.report}")
+    return 0 if report.verdict == "GO" else 1
 
 
 def _run_bench(bundle_path: Path, report_path: Path | None) -> int:
