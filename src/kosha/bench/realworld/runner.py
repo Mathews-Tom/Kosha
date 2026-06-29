@@ -30,7 +30,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from kosha.bench.acceptance import measure_fidelity
+from kosha.bench.gate2.contradictions import (
+    ContradictionCase,
+    load_contradictions,
+    regimes_present,
+)
 from kosha.bench.gate2.harness import AxisSample, CellMeasure, CellSample
+from kosha.bench.gate2.histories import bury_in_body, deep_history_claims, render_history
 from kosha.bench.grade import grade_query
 from kosha.bench.queries import BenchQuery
 from kosha.bench.realworld.labels import MaintenanceCase, load_maintenance, load_queries
@@ -42,6 +48,7 @@ from kosha.bench.strategies import (
 )
 from kosha.contradiction import (
     ContradictionJudge,
+    DetectorGatedJudge,
     GenerationContradictionJudge,
     SilentOverwriteError,
     assert_no_silent_overwrite,
@@ -59,7 +66,7 @@ from kosha.extract import ConceptDraft
 from kosha.index import EmbeddingIndex
 from kosha.index.embedding import index_text
 from kosha.merge import make_claim
-from kosha.model import Bundle
+from kosha.model import Bundle, Claim
 from kosha.okf import load_bundle
 from kosha.pipeline import ingest
 from kosha.providers.base import EmbeddingProvider, Generation, GenerationProvider
@@ -181,6 +188,7 @@ class RealworldConfig:
     candidate_k: int = 6
     drift_seed_concepts: int = 150
     max_queries: int | None = None
+    contradictions: Path = Path("evals/realworld/contradictions_v2.jsonl")
 
 
 @dataclass(frozen=True)
@@ -531,19 +539,26 @@ def _normalized(text: str) -> str:
 
 
 def build_gate2_measure(config: RealworldConfig) -> CellMeasure:
-    """Bind a Gate-0 v2 per-cell measurement over the held-out contradictions.
+    """Bind a Gate-0 v2 per-cell measurement over the regime-spanning held-out set.
 
-    The returned callable scores one provider cell's quality axes for one run.
-    Today it measures the knowledge-integrity ``safety_rate`` (loop reconcile vs
-    a safety-instructed prompt) on the held-out contradiction set; later spike
-    stages add the scaled set, the detection-recall axis, and the auditability
-    guarantee. The corpus index is embedded once per embedding provider and
-    reused across runs and generation models so the matrix costs one embed per
-    embedding, not one per cell-run.
+    Scores two quality axes per provider cell for one run:
+
+    * ``detection_recall`` -- did the decider detect the conflict? The loop uses a
+      detector-gated judge (code-owned numeric/negation detection forces
+      reconcile, deferring only the ambiguous residue to the LLM); the prompt-only
+      baseline is LLM-only (the fair contrast).
+    * ``safety_rate`` -- conflict surfaced AND the prior claim retained AND no
+      silent overwrite -- the knowledge-integrity guarantee.
+
+    Each held-out case is materialized into its at-scale context: a single prior
+    claim, a prior buried in a long body, or a prior buried in a deep in-force
+    history. The corpus index is embedded once per embedding provider and reused
+    across runs and generation models.
     """
     bundle = load_bundle(config.corpus)
-    cases = load_maintenance(config.maintenance)
     guidance = config.guidance.read_text(encoding="utf-8")
+    cases = load_contradictions(config.contradictions)
+    regimes = regimes_present(cases)
     indexes: dict[int, EmbeddingIndex] = {}
 
     def measure(
@@ -553,21 +568,95 @@ def build_gate2_measure(config: RealworldConfig) -> CellMeasure:
         if index is None:
             index = EmbeddingIndex.build(bundle, embedding)
             indexes[id(embedding)] = index
-        judge = GenerationContradictionJudge(generation)
-        loop, prompt = _run_safety(
-            bundle, index, generation, cases, guidance, config, judge, _noop
+        prompt_only = PromptOnlyBaseline(
+            bundle, index, generation, guidance=guidance, candidate_k=config.candidate_k
         )
+        gated = DetectorGatedJudge(GenerationContradictionJudge(generation))
+        loop_detected = loop_safe = loop_overwrites = 0
+        prompt_detected = prompt_safe = 0
+        for case in cases:
+            claims, retain_statement, prompt_context = _gate2_case_context(case)
+            detected, safe, overwritten = _gate2_loop_case(
+                claims, retain_statement, case.new, gated
+            )
+            loop_detected += detected
+            loop_safe += safe
+            loop_overwrites += overwritten
+            flagged, preserved = _gate2_prompt_case(
+                prompt_only, prompt_context, case.prior, case.new
+            )
+            prompt_detected += flagged
+            prompt_safe += preserved
+        n = len(cases)
         axes = (
-            AxisSample("safety_rate", loop.safety_rate, prompt.safety_rate),
+            AxisSample("detection_recall", _rate(loop_detected, n), _rate(prompt_detected, n)),
+            AxisSample("safety_rate", _rate(loop_safe, n), _rate(prompt_safe, n)),
         )
         return CellSample(
             axes=axes,
-            loop_silent_overwrites=loop.silent_overwrites,
-            contradictions=loop.cases,
-            regimes=(),
+            loop_silent_overwrites=loop_overwrites,
+            contradictions=n,
+            regimes=regimes,
         )
 
     return measure
+
+
+# A new claim is asserted after every generated prior/history so its window is later.
+_GATE2_NEW_ASOF = datetime(2027, 1, 1, tzinfo=UTC)
+_GATE2_PRIOR_ASOF = datetime(2026, 1, 1, tzinfo=UTC)
+_GATE2_AUTHORITY = {"corpus": 1, "update": 1}
+
+
+def _gate2_case_context(case: ContradictionCase) -> tuple[list[Claim], str, str]:
+    """Materialize a held-out case: (prior claims, the claim to retain, prompt text)."""
+    if case.scale == "deep_history":
+        claims = deep_history_claims(
+            case.subject, case.prior, case.depth, start=_GATE2_PRIOR_ASOF
+        )
+        return claims, case.prior, render_history(claims)
+    if case.scale == "buried_body":
+        body = bury_in_body(case.prior, sentences=case.filler)
+        claim = make_claim(body, "corpus", _GATE2_PRIOR_ASOF, effective_from=_GATE2_PRIOR_ASOF)
+        return [claim], body, body
+    claim = make_claim(case.prior, "corpus", _GATE2_PRIOR_ASOF, effective_from=_GATE2_PRIOR_ASOF)
+    return [claim], case.prior, case.prior
+
+
+def _gate2_loop_case(
+    claims: list[Claim], retain_statement: str, new_statement: str, judge: ContradictionJudge
+) -> tuple[int, int, int]:
+    """The loop's (detected, safe, overwritten) on one held-out contradiction."""
+    new_claim = make_claim(
+        new_statement, "update", _GATE2_NEW_ASOF, effective_from=_GATE2_NEW_ASOF
+    )
+    try:
+        result = reconcile(claims, new_claim, authority=_GATE2_AUTHORITY, judge=judge)
+    except ValueError:
+        # The judge produced no verdict: conflict not surfaced, nothing applied.
+        return 0, 0, 0
+    retained = any(claim.statement == retain_statement for claim in result.claims)
+    try:
+        assert_no_silent_overwrite(claims, result.claims)
+        overwritten = False
+    except SilentOverwriteError:
+        overwritten = True
+    detected = int(result.conflicting)
+    safe = int(result.conflicting and retained and not overwritten)
+    return detected, safe, int(overwritten)
+
+
+def _gate2_prompt_case(
+    prompt_only: PromptOnlyBaseline, prompt_context: str, fact: str, new_statement: str
+) -> tuple[int, int]:
+    """The prompt-only baseline's (flagged, preserved) on one held-out contradiction."""
+    text, flagged = prompt_only.maintain(prompt_context, new_statement)
+    preserved = _normalized(fact) in _normalized(text)
+    return int(flagged), int(flagged and preserved)
+
+
+def _rate(count: int, total: int) -> float:
+    return count / total if total else 0.0
 
 
 def _run_drift(
