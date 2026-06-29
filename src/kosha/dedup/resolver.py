@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from kosha.dedup.adjudicate import Adjudicator, Verdict
+from kosha.dedup.adjudicate import Adjudicator, CandidateConcept, Verdict
 from kosha.dedup.candidates import draft_query_text, nearest_candidates
 from kosha.dedup.decision import (
     DEFAULT_THRESHOLDS,
@@ -69,16 +69,33 @@ def resolve_draft(
         )
     if routing.route is Route.CREATE:
         return Decision(Action.CREATE, None, routing.score, routing.rationale)
-    # Ambiguous band: the single reserved LLM call.
+    # Ambiguous band: the reserved LLM call. With a single neighbor the question
+    # is "is this the same as that one?" (adjudicate); with several it is "which
+    # of these, if any?" (select over the top-k).
     assert routing.candidate is not None  # ADJUDICATE implies a top candidate
-    candidate_id = routing.candidate.concept_id
-    adjudication = adjudicator.adjudicate(
-        draft_query_text(draft), concept_texts.get(candidate_id, "")
-    )
-    rationale = f"{routing.rationale}; {adjudication.rationale}"
-    if adjudication.verdict is Verdict.SAME:
-        return Decision(Action.UPDATE, candidate_id, routing.score, rationale, adjudicated=True)
-    if adjudication.verdict is Verdict.DIFFERENT:
+    draft_text = draft_query_text(draft)
+    candidate_concepts = [
+        CandidateConcept(neighbor.concept_id, concept_texts.get(neighbor.concept_id, ""))
+        for neighbor in candidates
+    ]
+    verdict: Verdict
+    target_id: str | None
+    detail: str
+    if len(candidate_concepts) == 1:
+        adjudication = adjudicator.adjudicate(draft_text, candidate_concepts[0].text)
+        verdict = adjudication.verdict
+        target_id = routing.candidate.concept_id
+        detail = adjudication.rationale
+    else:
+        selection = adjudicator.select(draft_text, candidate_concepts)
+        verdict = selection.verdict
+        target_id = selection.concept_id
+        detail = selection.rationale
+    rationale = f"{routing.rationale}; {detail}"
+    if verdict is Verdict.SAME:
+        assert target_id is not None  # SAME implies a chosen concept
+        return Decision(Action.UPDATE, target_id, routing.score, rationale, adjudicated=True)
+    if verdict is Verdict.DIFFERENT:
         return Decision(Action.CREATE, None, routing.score, rationale, adjudicated=True)
     if splitter is None:
         return Decision(Action.SPLIT, None, routing.score, rationale, adjudicated=True)

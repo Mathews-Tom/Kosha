@@ -376,7 +376,9 @@ def _run_maintenance(
     )
 
     def loop_route(case: MaintenanceCase) -> tuple[str, str | None]:
-        return _loop_decision(case, index, concept_texts, adjudicator, thresholds)
+        return _loop_decision(
+            case, index, concept_texts, adjudicator, thresholds, config.candidate_k
+        )
 
     def prompt_route(case: MaintenanceCase) -> tuple[str, str | None]:
         decision = prompt_only.route(case.title, case.body)
@@ -395,17 +397,20 @@ def _loop_decision(
     concept_texts: dict[str, str],
     adjudicator: Adjudicator,
     thresholds: Thresholds,
+    k: int,
 ) -> tuple[str, str | None]:
+    # The note's title is its one-line description, so the loop routes over the same
+    # title+body text (and the same top-k) the prompt-only baseline sees.
     draft = ConceptDraft(
         title=case.title,
         body=case.body,
-        description="",
+        description=case.title,
         type="concept",
         source_id=f"rw://{case.id}",
     )
     try:
         decision = resolve_draft(
-            draft, index, concept_texts, adjudicator=adjudicator, thresholds=thresholds
+            draft, index, concept_texts, adjudicator=adjudicator, thresholds=thresholds, k=k
         )
     except ValueError:
         # An unparseable adjudication is a loop failure; score it as a wrong route.
@@ -567,7 +572,7 @@ def _drift(
     log(f"drift: seeded {len(seed_paths)} concepts; measuring start accuracy")
 
     accuracy_start = _drift_accuracy(
-        bundle_root, embedding_provider, adjudicator, thresholds, cases
+        bundle_root, embedding_provider, adjudicator, thresholds, cases, config.candidate_k
     )
     start = datetime(2026, 1, 1, tzinfo=UTC)
     for i in range(config.ingests):
@@ -586,7 +591,7 @@ def _drift(
         log(f"drift: ingest {i + 1}/{config.ingests}")
     log("drift: measuring end accuracy on the grown corpus")
     accuracy_end = _drift_accuracy(
-        bundle_root, embedding_provider, adjudicator, thresholds, cases
+        bundle_root, embedding_provider, adjudicator, thresholds, cases, config.candidate_k
     )
     final_concepts = len(load_bundle(bundle_root).concepts)
     log(f"drift: corpus grew {len(seed_paths)} -> {final_concepts} concepts")
@@ -625,13 +630,16 @@ def _drift_accuracy(
     adjudicator: Adjudicator,
     thresholds: Thresholds,
     cases: tuple[MaintenanceCase, ...],
+    k: int,
 ) -> float:
     bundle = load_bundle(bundle_root)
     index = EmbeddingIndex.build(bundle, embedding_provider)
     concept_texts = {cid: index_text(concept) for cid, concept in bundle.concepts.items()}
     correct = 0
     for case in cases:
-        action, concept_id = _loop_decision(case, index, concept_texts, adjudicator, thresholds)
+        action, concept_id = _loop_decision(
+            case, index, concept_texts, adjudicator, thresholds, k
+        )
         correct += int(_is_correct(case, action, concept_id))
     return correct / len(cases) if cases else 0.0
 
