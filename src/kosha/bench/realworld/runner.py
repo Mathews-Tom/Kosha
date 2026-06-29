@@ -76,10 +76,14 @@ def _noop(_message: str) -> None:
 NOTABLE_MARGIN = 0.10
 DRIFT_TOLERANCE = 0.05
 MIN_INGESTS = 50
+# At least this fraction of the drift ingests must add a concept, else the corpus
+# did not actually grow and criterion (2) was never exercised.
+MIN_GROWTH_RATIO = 0.9
 KILL_CRITERION = (
     "GO only if (1) loop maintenance accuracy exceeds prompt-only by at least "
     f"{NOTABLE_MARGIN:.0%}, (2) maintenance accuracy does not drop by more than "
-    f"{DRIFT_TOLERANCE:.0%} across >={MIN_INGESTS} sequential ingests, and (3) "
+    f"{DRIFT_TOLERANCE:.0%} across >={MIN_INGESTS} sequential ingests that actually "
+    f"grow the corpus (>={MIN_GROWTH_RATIO:.0%} of ingests add a concept), and (3) "
     "edit-drift fidelity holds. Otherwise NO-GO: ship Kosha as an OSS skill and "
     "halt M14+."
 )
@@ -112,12 +116,26 @@ class MaintenanceResult:
 
 @dataclass(frozen=True)
 class DriftResult:
-    """Maintenance accuracy before and after >=50 ingests, plus fidelity."""
+    """Maintenance accuracy before and after >=50 ingests, fidelity, and growth."""
 
     ingests: int
     accuracy_start: float
     accuracy_end: float
     fidelity_ok: bool
+    seed_concepts: int
+    final_concepts: int
+
+    @property
+    def concepts_added(self) -> int:
+        return self.final_concepts - self.seed_concepts
+
+    @property
+    def grew(self) -> bool:
+        # The drift premise is "quality holds as the corpus GROWS". If the
+        # synthetic ingests dedupe-collapse instead of creating concepts, the
+        # corpus does not grow and the premise is untested; require most ingests
+        # to have added a concept so a collapse fails the gate loudly.
+        return self.concepts_added >= int(self.ingests * MIN_GROWTH_RATIO)
 
 
 @dataclass(frozen=True)
@@ -173,6 +191,7 @@ class RealworldReport:
     def no_degradation(self) -> bool:
         return (
             self.drift.ingests >= MIN_INGESTS
+            and self.drift.grew
             and self.drift.fidelity_ok
             and self.drift.accuracy_end >= self.drift.accuracy_start - DRIFT_TOLERANCE
         )
@@ -432,12 +451,16 @@ def _drift(
     accuracy_end = _drift_accuracy(
         bundle_root, embedding_provider, adjudicator, thresholds, cases
     )
+    final_concepts = len(load_bundle(bundle_root).concepts)
+    log(f"drift: corpus grew {len(seed_paths)} -> {final_concepts} concepts")
     fidelity = measure_fidelity(root / "fidelity-scratch", ingests=max(config.ingests, MIN_INGESTS))
     return DriftResult(
         ingests=config.ingests,
         accuracy_start=accuracy_start,
         accuracy_end=accuracy_end,
         fidelity_ok=fidelity.ok,
+        seed_concepts=len(seed_paths),
+        final_concepts=final_concepts,
     )
 
 
@@ -476,13 +499,28 @@ def _drift_accuracy(
     return correct / len(cases) if cases else 0.0
 
 
+# Distinct real topic words so each growth doc is semantically and lexically far
+# from the others and from the stdlib corpus; combined with per-index unique
+# tokens this keeps the dedup resolver from collapsing the docs onto one concept.
+_GROWTH_TOPICS = (
+    "harbor", "meadow", "lantern", "comet", "glacier", "trombone", "saffron",
+    "obsidian", "marigold", "quartz", "tundra", "lagoon", "zephyr", "cinnamon",
+    "almanac", "barnacle", "cobalt", "driftwood", "ember", "fjord", "gondola",
+    "hammock", "iceberg", "juniper", "kelp", "lichen", "monsoon", "nectar",
+    "opal", "parsnip", "quokka", "rhubarb", "sextant", "thistle", "umbra",
+    "vellum", "walrus", "xylem", "yarrow", "zircon", "aqueduct", "basalt",
+    "cactus", "dahlia", "estuary", "ferns", "granite", "heron", "indigo",
+    "jasmine", "kiln", "lichgate", "mango", "nutmeg", "orchard", "pumice",
+    "quill", "reef", "sorrel", "tulip",
+)
+
+
 def _growth_doc(i: int) -> str:
-    return (
-        f"# Synthetic topic {i}\n\n"
-        f"This is benchmark growth document number {i}, describing synthetic topic "
-        f"{i} that is unrelated to any existing concept so the corpus grows by one "
-        f"new concept per ingest.\n"
-    )
+    # Heading + body share no boilerplate words across docs: a distinct real topic
+    # word plus per-index unique tokens, so the dedup resolver routes each CREATE.
+    topic = _GROWTH_TOPICS[i % len(_GROWTH_TOPICS)]
+    terms = " ".join(f"gd{i}w{k}" for k in range(8))
+    return f"# {topic} {i}\n\n{topic} {terms}\n"
 
 
 def render_realworld_report(report: RealworldReport) -> str:
@@ -516,7 +554,7 @@ def render_realworld_report(report: RealworldReport) -> str:
         "| Avg total tokens |",
         "|---|---|---|---|---|",
     ]
-    label = {"kosha_hybrid": "kosha-loop", "tuned_rag": "tuned-rag", "prompt_only": "prompt-only"}
+    label = {"kosha_hybrid": "kosha-hybrid", "tuned_rag": "tuned-rag", "prompt_only": "prompt-only"}
     for result in report.queries:
         lines.append(
             f"| {label.get(result.name, result.name)} | {result.concept_recall:.2f} | "
@@ -550,6 +588,8 @@ def render_realworld_report(report: RealworldReport) -> str:
             "## Drift across sequential ingests",
             "",
             f"- Ingests: {report.drift.ingests}",
+            f"- Corpus grew: {report.drift.seed_concepts} -> "
+            f"{report.drift.final_concepts} concepts (+{report.drift.concepts_added})",
             f"- Maintenance accuracy before growth: {report.drift.accuracy_start:.2f}",
             f"- Maintenance accuracy after growth: {report.drift.accuracy_end:.2f}",
             f"- Edit-drift fidelity held: {report.drift.fidelity_ok}",
@@ -572,8 +612,9 @@ def _decision_lines(report: RealworldReport) -> list[str]:
     )
     (wins if report.no_degradation else losses).append(
         f"maintenance accuracy moved {report.drift.accuracy_start:.2f} -> "
-        f"{report.drift.accuracy_end:.2f} across {report.drift.ingests} ingests "
-        f"(fidelity held: {report.drift.fidelity_ok})"
+        f"{report.drift.accuracy_end:.2f} across {report.drift.ingests} ingests as the "
+        f"corpus grew +{report.drift.concepts_added} (fidelity held: "
+        f"{report.drift.fidelity_ok})"
     )
     lines = [f"**Verdict: {report.verdict}.**", ""]
     lines.append("Wins:")

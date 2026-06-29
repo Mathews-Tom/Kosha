@@ -60,9 +60,14 @@ def test_runner_produces_three_way_and_maintenance(tmp_path: Path) -> None:
     assert report.concept_count >= 500
 
 
-def test_runner_drift_runs_requested_ingests(tmp_path: Path) -> None:
+def test_runner_drift_grows_the_corpus(tmp_path: Path) -> None:
     report = _run(tmp_path, ingests=2)
     assert report.drift.ingests == 2
+    # Distinct growth docs must each create a concept, so the corpus actually grows
+    # (the bug the review caught: integer-only docs dedupe-collapse and never grow).
+    assert report.drift.concepts_added == 2
+    assert report.drift.final_concepts == report.drift.seed_concepts + 2
+    assert report.drift.grew
     # The edit-drift fidelity probe always runs the full >=50-ingest check.
     assert report.drift.fidelity_ok
 
