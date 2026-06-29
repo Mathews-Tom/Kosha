@@ -1,0 +1,55 @@
+name: Real-model benchmark
+
+# Opt-in / manual: the M13 Gate-0 benchmark makes real embedding + LLM calls, so it
+# runs on demand only. A meaningful verdict needs a reachable OpenAI-compatible
+# endpoint, supplied via repository secrets/vars (KOSHA_EMBED_* / KOSHA_GEN_*). With
+# none set the run falls back to the offline local providers and is only a smoke test.
+on:
+  workflow_dispatch:
+    inputs:
+      ingests:
+        description: "Sequential ingests in the drift probe"
+        default: "50"
+      max_queries:
+        description: "Cap on held-out queries (blank = all)"
+        default: ""
+
+concurrency:
+  group: realworld-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  realworld:
+    runs-on: ubuntu-latest
+    env:
+      KOSHA_EMBED_BASE_URL: ${{ vars.KOSHA_EMBED_BASE_URL }}
+      KOSHA_EMBED_MODEL: ${{ vars.KOSHA_EMBED_MODEL }}
+      KOSHA_EMBED_DIM: ${{ vars.KOSHA_EMBED_DIM }}
+      KOSHA_EMBED_API_KEY: ${{ secrets.KOSHA_EMBED_API_KEY }}
+      KOSHA_GEN_BASE_URL: ${{ vars.KOSHA_GEN_BASE_URL }}
+      KOSHA_GEN_MODEL: ${{ vars.KOSHA_GEN_MODEL }}
+      KOSHA_GEN_API_KEY: ${{ secrets.KOSHA_GEN_API_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Install Python and dependencies
+        run: uv sync --locked
+
+      - name: Real-model Gate-0 benchmark (records the go/no-go verdict)
+        run: |
+          uv run kosha bench realworld \
+            --report ACCEPTANCE_REPORT.md \
+            --ingests "${{ inputs.ingests }}" \
+            ${{ inputs.max_queries && format('--max-queries {0}', inputs.max_queries) || '' }}
+
+      - name: Upload acceptance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: realworld-acceptance-report
+          path: ACCEPTANCE_REPORT.md
