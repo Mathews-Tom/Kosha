@@ -11,6 +11,12 @@ downstream; the RAG and long-context strategies are benchmark-only baselines.
 
 from __future__ import annotations
 
+from kosha.bench.calibrate import (
+    Calibration,
+    calibrate_thresholds,
+    default_threshold_mismatch,
+    render_calibration,
+)
 from kosha.bench.grade import QueryGrade, grade_query
 from kosha.bench.labels import (
     DedupPair,
@@ -50,6 +56,7 @@ __all__ = [
     "STRATEGY_ORDER",
     "BenchQuery",
     "BenchReport",
+    "Calibration",
     "DedupPair",
     "DedupSignal",
     "GranularityLabel",
@@ -63,6 +70,8 @@ __all__ = [
     "RetrievedContext",
     "StrategyResult",
     "TunedRagStrategy",
+    "calibrate_thresholds",
+    "default_threshold_mismatch",
     "evaluate_granularity",
     "evaluate_kill_signals",
     "evaluate_threshold_only",
@@ -70,6 +79,7 @@ __all__ = [
     "grade_query",
     "load_dedup_pairs",
     "load_granularity_labels",
+    "render_calibration",
     "render_premise_report",
     "render_table",
     "run_benchmark",
