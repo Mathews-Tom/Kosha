@@ -539,7 +539,7 @@ def _normalized(text: str) -> str:
 
 
 def build_gate2_measure(
-    config: RealworldConfig, *, runs_per_cell: int | None = None
+    config: RealworldConfig, *, replay_across_embeddings: bool = False
 ) -> CellMeasure:
     """Bind a Gate-0 v2 per-cell measurement over the regime-spanning held-out set.
 
@@ -554,23 +554,26 @@ def build_gate2_measure(
 
     Each held-out case is materialized into its at-scale context: a single prior
     claim, a prior buried in a long body, or a prior buried in a deep in-force
-    history. The corpus index is embedded once per embedding provider and reused.
+    history.
 
-    Both quality axes are computed on ``(prior, new)`` claim pairs directly and
-    never touch retrieval, so they are independent of the embedding provider. When
-    ``runs_per_cell`` is given, a generation's runs are computed once (under the
-    first embedding) and replayed for later embeddings rather than re-calling the
-    LLM to the same effect: the matrix still exercises every embedding (each builds
-    its index) while the LLM cost scales with the generation x run grid, not the
-    full cell grid. Leave it ``None`` (the default) for independent per-cell runs.
+    An ``EmbeddingIndex`` is built per embedding provider (exercising each
+    embedding in the matrix and satisfying the prompt-only baseline's constructor),
+    but neither scored axis queries it: both are computed on ``(prior, new)`` claim
+    pairs directly and never touch retrieval, so they are provably independent of
+    the embedding. With ``replay_across_embeddings`` set, the first embedding's runs
+    for a generation are recorded and replayed for that generation under later
+    embeddings rather than re-calling the LLM to the same effect -- the matrix still
+    exercises every embedding while the LLM cost scales with the generation x run
+    grid, not the full cell grid. The default recomputes every cell independently.
     """
     bundle = load_bundle(config.corpus)
     guidance = config.guidance.read_text(encoding="utf-8")
     cases = load_contradictions(config.contradictions)
     regimes = regimes_present(cases)
     indexes: dict[int, EmbeddingIndex] = {}
-    by_generation: dict[int, list[CellSample]] = {}
-    seen: dict[int, int] = {}
+    first_embedding: dict[int, int] = {}
+    runs_of_first: dict[int, list[CellSample]] = {}
+    run_index: dict[tuple[int, int], int] = {}
 
     def measure(
         embedding: EmbeddingProvider, generation: GenerationProvider
@@ -579,11 +582,16 @@ def build_gate2_measure(
         if index is None:
             index = EmbeddingIndex.build(bundle, embedding)
             indexes[id(embedding)] = index
-        bank = by_generation.setdefault(id(generation), [])
-        call = seen.get(id(generation), 0)
-        seen[id(generation)] = call + 1
-        if runs_per_cell is not None and call >= runs_per_cell:
-            return bank[call % runs_per_cell]
+        gid, eid = id(generation), id(embedding)
+        first_embedding.setdefault(gid, eid)
+        recorded = runs_of_first.setdefault(gid, [])
+        idx = run_index.get((gid, eid), 0)
+        run_index[(gid, eid)] = idx + 1
+        replaying = replay_across_embeddings and first_embedding[gid] != eid
+        if replaying and idx < len(recorded):
+            # The axes are embedding-independent: replay this generation's run from
+            # the first embedding instead of re-calling the LLM to the same effect.
+            return recorded[idx]
         prompt_only = PromptOnlyBaseline(
             bundle, index, generation, guidance=guidance, candidate_k=config.candidate_k
         )
@@ -614,7 +622,8 @@ def build_gate2_measure(
             contradictions=n,
             regimes=regimes,
         )
-        bank.append(sample)
+        if first_embedding[gid] == eid:
+            recorded.append(sample)
         return sample
 
     return measure

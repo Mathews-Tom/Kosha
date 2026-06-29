@@ -479,7 +479,7 @@ def _run_bench_gate2(args: argparse.Namespace) -> int:
     criterion = Gate2Criterion.preregistered()
     matrix = resolve_provider_matrix()
     cases = load_contradictions(config.contradictions)
-    measure = build_gate2_measure(config, runs_per_cell=args.runs)
+    measure = build_gate2_measure(config, replay_across_embeddings=True)
     _progress("verifying auditability guarantee + provenance replay")
     with tempfile.TemporaryDirectory() as scratch:
         auditability = run_auditability(cases, work_dir=Path(scratch))
