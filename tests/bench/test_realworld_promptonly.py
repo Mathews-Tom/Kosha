@@ -50,10 +50,16 @@ def _baseline(reply: str) -> PromptOnlyBaseline:
     return PromptOnlyBaseline(bundle, index, _StubGenerator(reply), guidance=_GUIDANCE)
 
 
-def test_answer_records_loaded_candidates_and_citation() -> None:
+def test_answer_scores_candidates_and_reports_citations_separately() -> None:
     baseline = _baseline("Gold members get 45 days. CITED: policies/returns/gold-members")
     result = baseline.answer("How long does a gold member have to return an item?")
-    assert "policies/returns/gold-members" in result.context.concept_ids
+    # Concept recall is scored over the loaded candidates (the embedding jump),
+    # which the runner grades; the model's citation is reported separately and
+    # never folded into recall.
+    assert result.context.concept_ids
+    candidates = baseline._candidates("How long does a gold member have to return an item?")
+    assert list(result.context.concept_ids) == candidates
+    assert result.cited == ("policies/returns/gold-members",)
     assert result.context.round_trips == 1
     assert result.generation.usage.total_tokens > 0
 

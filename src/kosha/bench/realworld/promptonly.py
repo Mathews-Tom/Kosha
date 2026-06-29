@@ -46,10 +46,11 @@ _CREATE = re.compile(r"\bCREATE\b", re.IGNORECASE)
 
 @dataclass(frozen=True)
 class PromptOnlyAnswer:
-    """A prompt-only answer: what reached the model and what it produced."""
+    """A prompt-only answer: what reached the model, what it produced, what it cited."""
 
     context: RetrievedContext
     generation: Generation
+    cited: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -89,16 +90,19 @@ class PromptOnlyBaseline:
         prompt = f"{self._guidance}\n\nQuestion: {question}\n\n{_ANSWER_INSTRUCTION}"
         generation = self._generator.generate(prompt, context_text)
         cited = _parse_cited(generation.text, set(self._bundle.concepts))
-        # Concept recall is scored over what reached the model (the loaded files),
-        # the same basis the retrieval strategies use; citations are advisory.
-        retrieved = list(dict.fromkeys([*candidates, *cited]))
-        context = RetrievedContext(self.name, retrieved, context_text, round_trips=1)
-        return PromptOnlyAnswer(context=context, generation=generation)
+        # Concept recall is scored over what reached the model (the loaded
+        # candidate files), the same basis the retrieval strategies use; citations
+        # are reported but never inflate recall (a model can name an id it was not
+        # shown).
+        context = RetrievedContext(self.name, list(candidates), context_text, round_trips=1)
+        return PromptOnlyAnswer(context=context, generation=generation, cited=tuple(cited))
 
     def route(self, title: str, body: str) -> PromptDecision:
         """Decide UPDATE-existing or CREATE-new for a new note, in one LLM shot."""
         candidates = self._candidates(f"{title}\n{body}")
-        context_text = self._render_summaries(candidates)
+        # Render full candidate bodies, the same content the loop's adjudicator
+        # reads (index_text = description + body), so the comparison is symmetric.
+        context_text = self._render_bodies(candidates)
         prompt = f"{self._guidance}\n\n{_ROUTE_INSTRUCTION}\n\nNew note '{title}':\n{body}"
         generation = self._generator.generate(prompt, context_text)
         return _parse_decision(generation.text, set(self._bundle.concepts))
@@ -114,16 +118,6 @@ class PromptOnlyBaseline:
                 continue
             blocks.append(f"## {concept_id}\n{concept.body.strip()}")
         return "\n\n".join(blocks)
-
-    def _render_summaries(self, concept_ids: list[str]) -> str:
-        lines: list[str] = []
-        for concept_id in concept_ids:
-            concept = self._bundle.concepts.get(concept_id)
-            if concept is None:
-                continue
-            description = concept.frontmatter.description or ""
-            lines.append(f"- {concept_id}: {description}")
-        return "\n".join(lines)
 
 
 def _parse_cited(text: str, valid_ids: set[str]) -> list[str]:
