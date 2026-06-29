@@ -196,12 +196,20 @@ def parse_verdict(text: str) -> Verdict:
 def build_selection_prompt(
     draft_text: str, candidates: Sequence[CandidateConcept]
 ) -> tuple[str, str]:
-    """Return the (query, context) asking which candidate the note updates."""
+    """Return the (query, context) routing a note to the concept it is about.
+
+    Routing is on topic identity, not agreement: a note that *contradicts* an
+    existing concept is still about that concept, so it routes to UPDATE(it) and
+    reaches reconcile() — never CREATE — instead of being mis-filed as new.
+    """
     query = (
         "A NEW note is below, followed by EXISTING concepts, each tagged with its id. "
-        "Decide whether the new note updates one of the existing concepts (a duplicate "
-        "or a revised version of the same thing) or is genuinely new knowledge. Reply on "
-        "a single line with exactly 'UPDATE <id>' (copying one of the ids above) or 'CREATE'."
+        "Decide whether the new note updates or contradicts one of the existing "
+        "concepts -- it is about the same topic, whether it agrees with or conflicts "
+        "with what that concept currently says -- or is genuinely new knowledge. A "
+        "note that contradicts an existing concept still belongs to it, so choose "
+        "UPDATE for it. Reply on a single line with exactly 'UPDATE <id>' (copying "
+        "one of the ids above) or 'CREATE'."
     )
     blocks = [f"[{candidate.concept_id}]\n{candidate.text}" for candidate in candidates]
     context = "NEW note:\n" + draft_text + "\n\nEXISTING concepts:\n" + "\n\n".join(blocks)
