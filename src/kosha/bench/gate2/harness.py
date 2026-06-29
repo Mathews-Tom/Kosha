@@ -55,6 +55,7 @@ def run_gate2(
     *,
     criterion: Gate2Criterion | None = None,
     runs: int,
+    audit_verified: bool | None = None,
     progress: ProgressFn | None = None,
 ) -> Gate2Report:
     """Run ``measure`` ``runs`` times per matrix cell and build the verdict report."""
@@ -76,6 +77,7 @@ def run_gate2(
         embeddings=matrix.embedding_labels,
         generations=matrix.generation_labels,
         runs=runs,
+        audit_verified=audit_verified,
     )
 
 

@@ -158,6 +158,7 @@ class Gate2Report:
     generations: tuple[str, ...]
     runs: int
     notes: tuple[str, ...] = field(default_factory=tuple)
+    audit_verified: bool | None = None
 
     @property
     def matrix_powered(self) -> bool:
@@ -218,10 +219,22 @@ class Gate2Report:
         return None
 
     @property
+    def auditability_ok(self) -> bool:
+        """The loop's verifiable no-silent-overwrite guarantee + replayable trail held.
+
+        A binary necessary condition exercised end-to-end (PR-4). It cannot carry a
+        GO on its own — a guarantee the loop holds by construction is not a quality
+        win (§2.4) — but a re-test that did not verify it is inadmissible.
+        """
+        return self.audit_verified is True
+
+    @property
     def verdict(self) -> str:
         if not self.powered:
             return "NO-GO"
         if not self.no_silent_overwrites:
+            return "NO-GO"
+        if not self.auditability_ok:
             return "NO-GO"
         return "GO" if self.carrying_axis is not None else "NO-GO"
 

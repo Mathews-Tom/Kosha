@@ -49,7 +49,12 @@ def _cell(
     )
 
 
-def _report(cells: tuple[CellResult, ...], *, runs: int = CRITERION.min_runs) -> Gate2Report:
+def _report(
+    cells: tuple[CellResult, ...],
+    *,
+    runs: int = CRITERION.min_runs,
+    audit_verified: bool | None = True,
+) -> Gate2Report:
     embeddings = tuple(sorted({cell.embedding_label for cell in cells}))
     generations = tuple(sorted({cell.generation_label for cell in cells}))
     return Gate2Report(
@@ -58,6 +63,7 @@ def _report(cells: tuple[CellResult, ...], *, runs: int = CRITERION.min_runs) ->
         embeddings=embeddings,
         generations=generations,
         runs=runs,
+        audit_verified=audit_verified,
     )
 
 
@@ -114,6 +120,25 @@ def test_powered_clearing_matrix_is_go() -> None:
     assert report.carrying_axis == "safety_rate"
     assert report.verdict == "GO"
     assert report.authorizes_m14
+
+
+def test_unverified_auditability_cannot_go() -> None:
+    # A powered, clearing matrix still cannot GO if the guarantee was not verified.
+    assert _report(_powered_go_cells(), audit_verified=False).verdict == "NO-GO"
+    assert _report(_powered_go_cells(), audit_verified=None).verdict == "NO-GO"
+
+
+def test_auditability_alone_cannot_go() -> None:
+    # The binary guarantee verified but no quality axis cleared: still NO-GO.
+    cells = tuple(
+        _cell(embed, gen, loop=[0.64, 0.66, 0.65], prompt=[0.60, 0.62, 0.61])
+        for embed in ("bge-m3", "nomic")
+        for gen in ("gpt-4o-mini", "gemma4")
+    )
+    report = _report(cells, audit_verified=True)
+    assert report.auditability_ok
+    assert report.carrying_axis is None
+    assert report.verdict == "NO-GO"
 
 
 def test_underpowered_matrix_cannot_go() -> None:
