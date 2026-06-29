@@ -201,3 +201,29 @@ def test_parse_selection_tolerates_brackets_around_the_id() -> None:
     result = parse_selection("UPDATE [json/dumps]", ["json/loads", "json/dumps"], "gen")
     assert result.verdict is Verdict.SAME
     assert result.concept_id == "json/dumps"
+
+
+def test_contradiction_routes_to_the_owning_concept_not_create() -> None:
+    # Routing is on topic identity, not agreement: a conflicting restatement of
+    # findall shares its vocabulary, so it selects re/findall (-> UPDATE ->
+    # reconcile) instead of being mis-filed as a new concept.
+    adj = LexicalAdjudicator(same_threshold=0.2)
+    candidates = [
+        CandidateConcept("c-refund", "Refunds post to the original card after approval."),
+        CandidateConcept(
+            "re/findall", "findall returns every non-overlapping match of a regular expression."
+        ),
+    ]
+    selection = adj.select(
+        "findall now returns only the first match of a regular expression.", candidates
+    )
+    assert selection.verdict is Verdict.SAME
+    assert selection.concept_id == "re/findall"
+
+
+def test_selection_prompt_routes_contradictions_to_update() -> None:
+    query, _ = build_selection_prompt(
+        "x", [CandidateConcept("re/findall", "find all matches")]
+    )
+    assert "contradicts" in query.lower()
+    assert "UPDATE" in query
