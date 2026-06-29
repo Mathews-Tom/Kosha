@@ -373,7 +373,16 @@ def _run_bench_realworld(args: argparse.Namespace) -> int:
         drift_seed_concepts=args.seed_concepts,
         max_queries=args.max_queries,
     )
-    report = run_realworld(config, resolve_embedding_provider(), resolve_generation_provider())
+
+    def _progress(message: str) -> None:
+        print(f"[realworld] {message}", file=sys.stderr, flush=True)
+
+    report = run_realworld(
+        config,
+        resolve_embedding_provider(),
+        resolve_generation_provider(),
+        progress=_progress,
+    )
     print(
         f"Real-model benchmark over {args.corpus} ({report.concept_count} concepts, "
         f"embed={report.embedding_provider}, gen={report.generation_provider})"

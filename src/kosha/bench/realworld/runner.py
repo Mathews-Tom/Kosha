@@ -59,6 +59,14 @@ from kosha.providers.tokens import count_tokens
 # A function mapping a maintenance case to a (action, concept_id) routing decision.
 _RouteFn = Callable[["MaintenanceCase"], tuple[str, str | None]]
 
+# Optional progress sink; the runner streams human-readable phase lines to it.
+_ProgressFn = Callable[[str], None]
+
+
+def _noop(_message: str) -> None:
+    return None
+
+
 # --- Kill criterion (fixed BEFORE the run; KOSHA_STRATEGIC_ANALYSIS §5 Gate 0) ---
 # The maintenance loop is a product only if ALL of these hold; otherwise Kosha is
 # a skill and ships as an OSS library/skill — M14+ does not begin.
@@ -182,8 +190,10 @@ def run_realworld(
     adjudicator: Adjudicator | None = None,
     thresholds: Thresholds = DEFAULT_THRESHOLDS,
     work_dir: Path | None = None,
+    progress: _ProgressFn | None = None,
 ) -> RealworldReport:
     """Run the three-way comparison and the drift probe; return the verdict report."""
+    log = progress or _noop
     bundle = load_bundle(config.corpus)
     queries = load_queries(config.queries)
     if config.max_queries is not None:
@@ -192,12 +202,14 @@ def run_realworld(
     guidance = config.guidance.read_text(encoding="utf-8")
     loop_adjudicator = adjudicator or GenerationAdjudicator(generation_provider)
 
+    log(f"embedding corpus index ({len(bundle.concepts)} concepts)")
     index = EmbeddingIndex.build(bundle, embedding_provider)
     query_results = _run_queries(
-        bundle, index, embedding_provider, generation_provider, queries, guidance, config
+        bundle, index, embedding_provider, generation_provider, queries, guidance, config, log
     )
     maintenance_results = _run_maintenance(
-        bundle, index, generation_provider, cases, guidance, config, loop_adjudicator, thresholds
+        bundle, index, generation_provider, cases, guidance, config, loop_adjudicator,
+        thresholds, log,
     )
     drift = _run_drift(
         bundle,
@@ -208,6 +220,7 @@ def run_realworld(
         loop_adjudicator,
         thresholds,
         work_dir,
+        log,
     )
     return RealworldReport(
         embedding_provider=embedding_provider.name,
@@ -229,6 +242,7 @@ def _run_queries(
     queries: tuple[BenchQuery, ...],
     guidance: str,
     config: RealworldConfig,
+    log: _ProgressFn,
 ) -> tuple[QueryStrategyResult, ...]:
     hybrid = HybridStrategy(bundle, index)
     tuned_rag = TunedRagStrategy(bundle, embedding_provider)
@@ -246,6 +260,7 @@ def _run_queries(
 
     results: list[QueryStrategyResult] = []
     for name in ("kosha_hybrid", "tuned_rag", "prompt_only"):
+        log(f"queries: {name} over {len(queries)} held-out questions")
         concept_recall: list[float] = []
         keyword_recall: list[float] = []
         context_tokens: list[int] = []
@@ -278,6 +293,7 @@ def _run_maintenance(
     config: RealworldConfig,
     adjudicator: Adjudicator,
     thresholds: Thresholds,
+    log: _ProgressFn,
 ) -> tuple[MaintenanceResult, ...]:
     concept_texts = {cid: index_text(concept) for cid, concept in bundle.concepts.items()}
     prompt_only = PromptOnlyBaseline(
@@ -291,6 +307,7 @@ def _run_maintenance(
         decision = prompt_only.route(case.title, case.body)
         return decision.action, decision.concept_id
 
+    log(f"maintenance routing: loop vs prompt-only over {len(cases)} held-out cases")
     return (
         _score_maintenance("kosha_loop", cases, loop_route),
         _score_maintenance("prompt_only", cases, prompt_route),
@@ -360,16 +377,17 @@ def _run_drift(
     adjudicator: Adjudicator,
     thresholds: Thresholds,
     work_dir: Path | None,
+    log: _ProgressFn,
 ) -> DriftResult:
     if work_dir is None:
         with tempfile.TemporaryDirectory() as scratch:
             return _drift(
                 Path(scratch), bundle, embedding_provider, generation_provider, cases, config,
-                adjudicator, thresholds,
+                adjudicator, thresholds, log,
             )
     return _drift(
         work_dir, bundle, embedding_provider, generation_provider, cases, config,
-        adjudicator, thresholds,
+        adjudicator, thresholds, log,
     )
 
 
@@ -382,6 +400,7 @@ def _drift(
     config: RealworldConfig,
     adjudicator: Adjudicator,
     thresholds: Thresholds,
+    log: _ProgressFn,
 ) -> DriftResult:
     from kosha.git_store import GitStore
 
@@ -389,6 +408,7 @@ def _drift(
     store = GitStore.init(bundle_root)
     seed_paths = _seed_bundle(bundle, bundle_root, config, cases)
     store.commit(seed_paths, "seed corpus")
+    log(f"drift: seeded {len(seed_paths)} concepts; measuring start accuracy")
 
     accuracy_start = _drift_accuracy(
         bundle_root, embedding_provider, adjudicator, thresholds, cases
@@ -407,6 +427,8 @@ def _drift(
             embedding_provider=embedding_provider,
             generation_provider=generation_provider,
         )
+        log(f"drift: ingest {i + 1}/{config.ingests}")
+    log("drift: measuring end accuracy on the grown corpus")
     accuracy_end = _drift_accuracy(
         bundle_root, embedding_provider, adjudicator, thresholds, cases
     )
