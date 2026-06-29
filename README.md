@@ -9,12 +9,13 @@
 
 > Kosha (Sanskrit: कोश, pronounced *koh-shah*) — a traditional term for a treasury or lexicon: a curated vessel of knowledge.
 
-Kosha is a self-maintaining [OKF](https://openknowledgeformat.com) knowledge engine. It turns an organization's scattered knowledge into a **living, version-controlled "brain"** that any agent — Claude, Gemini, a local model — can answer from, instead of re-deriving answers from raw documents on every query.
+Kosha is a **verifiable, auditable maintenance layer for [OKF](https://openknowledgeformat.com) knowledge bundles**. It keeps an organization's knowledge coherent as it grows and gives connected agents — Claude, Gemini, a local model — a curated corpus to answer from, with a guarantee a freeform agent cannot offer: **knowledge is never silently overwritten, and every change is replayable.**
 
-It does two things no OKF converter does:
+What sets it apart is enforced in code, not asked of a model:
 
-1. **Keeps the corpus coherent as it grows.** Every ingest extracts concepts, *deduplicates against what already exists*, merges or creates, discovers cross-links, and flags contradictions — as a reviewable Git commit. No duplicate folders, no telephone-game drift.
-2. **Forces consumers to traverse, not grep.** A connected agent reads through deterministic traversal tools (a table of contents → frontmatter → the minimal concept set) and *cannot* silently fall back to keyword search across the file tree.
+1. **No silent overwrites, by construction.** Updates *supersede* prior claims — append-only, content-addressed — instead of editing prose in place; `assert_no_silent_overwrite` makes the guarantee checkable and the full claim lineage reconstructable.
+2. **A replayable audit trail.** Every ingest lands on its own Git branch as a reviewable commit — deduplicated, cross-linked, contradiction-flagged — and nothing reaches `main` without a human merge.
+3. **Traversal, not grep.** A connected agent reads through deterministic traversal tools (table of contents → frontmatter → the minimal concept set) and *cannot* silently fall back to keyword search across the file tree.
 
 The unit Kosha produces is a **conformant OKF bundle**: a directory of Markdown concepts plus `index.md`/`log.md`, portable and tool-neutral by construction. Delete Kosha and the bundle still works in any editor or agent.
 
@@ -22,7 +23,7 @@ The unit Kosha produces is a **conformant OKF bundle**: a directory of Markdown 
 
 ## Status
 
-Version `0.1.0` — MVP. Two gates back the success contract.
+Version `0.1.0`.
 
 **MVP self-consistency gate** — runs offline with the deterministic local providers (`lexical-hash-256` embeddings, `extractive-3` generation) on the reference corpus (`bundles/northwind`); currently **passes**:
 
@@ -34,8 +35,6 @@ Version `0.1.0` — MVP. Two gates back the success contract.
 | Contradictions resolved-or-escalated, 0 silent overwrites | **PASS** — 12/12 handled |
 
 These figures are a rigorous self-consistency test, not a real-model result; reproduce with `uv run kosha bench acceptance`.
-
-**Real-model Gate 0 (M13)** — the product-vs-skill decision, and the only gate that can halt the project. A real embedding (`bge-m3`) + real LLM (`gpt-4o-mini`) run an external 680-concept corpus (`bundles/pydoc-stdlib`), comparing the maintenance loop against a tuned RAG baseline and a prompt-only baseline over a held-out query/maintenance set across ≥50 sequential ingests. **Verdict: NO-GO**, and the result is robust across two framings. On maintenance *routing* the loop scores 0.50 vs the prompt-only baseline's 0.75 (it loses on contradiction routing, 0.17 vs 0.83) — and the diagnostic showed this is structural: the loop's adjudicator and the prompt both call the same LLM, so decision accuracy converges. Reframing Gate 0 onto the loop's actual moat — *knowledge-integrity safety under contradiction* (detect → preserve prior claim → never silently overwrite) — a fairly safety-instructed prompt **ties the loop at 1.00 vs 1.00** on the held-out contradictions. So there is no measured axis on which the loop beats a good prompt on this corpus. Per Gate 0: **ship Kosha as an OSS skill and halt M14+.** The loop's remaining edge is a *guarantee* (0 silent overwrites by construction vs the prompt's best-effort) and token-efficient retrieval (hybrid 0.96 recall @ ~1089 tok vs prompt-only 1.00 @ ~1533) — a governance/auditability story, not a decision-quality win. Full tables and go/no-go: [`ACCEPTANCE_REPORT.md`](ACCEPTANCE_REPORT.md); reproduce with `kosha bench realworld` and a configured endpoint.
 
 ---
 
@@ -127,7 +126,7 @@ From a source checkout you can also drive the bundled Northwind reference corpus
 uv run kosha validate bundles/northwind          # OK: ... is OKF-conformant
 uv run kosha bench --bundle bundles/northwind    # hybrid vs RAG vs long-context
 uv run kosha bench acceptance                    # gate the 4 MVP success criteria
-uv run kosha bench realworld --max-queries 12    # real-model Gate 0 (needs an endpoint)
+uv run kosha bench realworld --max-queries 12    # real-model benchmark (needs an endpoint)
 ```
 
 Full walkthrough: [`docs/getting-started.md`](docs/getting-started.md).
@@ -169,7 +168,7 @@ Without MCP, the same protocol ships as an `AGENTS.md` fragment ([`consumer/AGEN
 | `kosha ingest <source> [--bundle] [--dry-run] [--yes] [--authority]` | Run the maintenance loop behind the approve gate |
 | `kosha bench [--bundle] [--report]` | Premise-validation retrieval benchmark (hybrid vs RAG vs long-context) |
 | `kosha bench acceptance [--bundle] [--report]` | Gate the four MVP success criteria (exit 0 iff all pass) |
-| `kosha bench realworld [--corpus] [--ingests] [--report]` | Real-model Gate-0 benchmark: loop vs tuned RAG vs prompt-only + go/no-go |
+| `kosha bench realworld [--corpus] [--ingests] [--report]` | Real-model benchmark: loop vs tuned RAG vs prompt-only baselines |
 | `kosha bench corpus [--out]` | Regenerate the external stdlib benchmark corpus |
 | `kosha eval extract\|dedup\|merge\|relate\|contradict` | Score one LLM surface against seed labels |
 
