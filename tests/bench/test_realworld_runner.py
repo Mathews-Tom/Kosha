@@ -19,6 +19,7 @@ from kosha.bench.realworld import (
 )
 from kosha.bench.realworld.runner import KILL_CRITERION, MIN_INGESTS
 from kosha.cli import main
+from kosha.contradiction import LexicalContradictionJudge
 from kosha.dedup import LexicalAdjudicator
 from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
 
@@ -48,6 +49,7 @@ def _run(work_dir: Path, ingests: int = 2):  # type: ignore[no-untyped-def]
         LexicalEmbeddingProvider(),
         ExtractiveGenerationProvider(),
         adjudicator=LexicalAdjudicator(),
+        judge=LexicalContradictionJudge(),
         work_dir=work_dir,
     )
 
@@ -58,6 +60,10 @@ def test_runner_produces_three_way_and_maintenance(tmp_path: Path) -> None:
     assert {r.name for r in report.maintenance} == {"kosha_loop", "prompt_only"}
     assert report.query_count == 4
     assert report.concept_count >= 500
+    # The reframed moat metric: loop vs prompt-only knowledge-integrity safety.
+    assert {r.name for r in report.safety} == {"kosha_loop", "prompt_only"}
+    # The loop's reconcile guarantee never silently overwrites a prior claim.
+    assert report.safety_by_name("kosha_loop").silent_overwrites == 0
 
 
 def test_runner_drift_grows_the_corpus(tmp_path: Path) -> None:
@@ -79,6 +85,7 @@ def test_render_report_has_table_kill_criterion_and_verdict(tmp_path: Path) -> N
     assert "tuned-rag" in document
     assert "prompt-only" in document
     assert "## Drift across sequential ingests" in document
+    assert "Knowledge-integrity safety" in document
     assert KILL_CRITERION in document
     assert report.verdict in {"GO", "NO-GO"}
     assert f"Verdict: {report.verdict}" in document
