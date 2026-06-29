@@ -22,7 +22,9 @@ The unit Kosha produces is a **conformant OKF bundle**: a directory of Markdown 
 
 ## Status
 
-Version `0.1.0` — MVP. The success contract is gated by an automated acceptance harness and currently **passes** on the reference corpus (`bundles/northwind`):
+Version `0.1.0` — MVP. Two gates back the success contract.
+
+**MVP self-consistency gate** — runs offline with the deterministic local providers (`lexical-hash-256` embeddings, `extractive-3` generation) on the reference corpus (`bundles/northwind`); currently **passes**:
 
 | Criterion | Result |
 |---|---|
@@ -31,7 +33,9 @@ Version `0.1.0` — MVP. The success contract is gated by an automated acceptanc
 | Fidelity preserved across ≥20 sequential ingests | **PASS** — no edit-drift |
 | Contradictions resolved-or-escalated, 0 silent overwrites | **PASS** — 12/12 handled |
 
-Reproduce with `uv run kosha bench acceptance`. Full report: [`ACCEPTANCE_REPORT.md`](ACCEPTANCE_REPORT.md).
+These figures are a rigorous self-consistency test, not a real-model result; reproduce with `uv run kosha bench acceptance`.
+
+**Real-model Gate 0 (M13)** — the product-vs-skill decision, and the only gate that can halt the project. A real embedding (`bge-m3`) + real LLM (`gpt-4o-mini`) run an external 680-concept corpus (`bundles/pydoc-stdlib`), comparing the maintenance loop against a tuned RAG baseline and a prompt-only baseline over a held-out query/maintenance set across ≥50 sequential ingests. **Current verdict: NO-GO** — on held-out maintenance routing the loop scores 0.50 vs the prompt-only baseline's 0.79 (it loses on contradictions, 0.17 vs 1.00), so with default thresholds on a real embedding the loop does not beat a good prompt. Per Gate 0 this means **ship Kosha as an OSS skill and halt M14+** until a re-run clears the bar. Hybrid retrieval is competitive (0.96 concept recall at ~1082 tokens vs prompt-only's 1.00 at ~1527). Full three-way table and go/no-go: [`ACCEPTANCE_REPORT.md`](ACCEPTANCE_REPORT.md); reproduce with `kosha bench realworld` and a configured endpoint.
 
 ---
 
@@ -123,6 +127,7 @@ From a source checkout you can also drive the bundled Northwind reference corpus
 uv run kosha validate bundles/northwind          # OK: ... is OKF-conformant
 uv run kosha bench --bundle bundles/northwind    # hybrid vs RAG vs long-context
 uv run kosha bench acceptance                    # gate the 4 MVP success criteria
+uv run kosha bench realworld --max-queries 12    # real-model Gate 0 (needs an endpoint)
 ```
 
 Full walkthrough: [`docs/getting-started.md`](docs/getting-started.md).
@@ -164,6 +169,8 @@ Without MCP, the same protocol ships as an `AGENTS.md` fragment ([`consumer/AGEN
 | `kosha ingest <source> [--bundle] [--dry-run] [--yes] [--authority]` | Run the maintenance loop behind the approve gate |
 | `kosha bench [--bundle] [--report]` | Premise-validation retrieval benchmark (hybrid vs RAG vs long-context) |
 | `kosha bench acceptance [--bundle] [--report]` | Gate the four MVP success criteria (exit 0 iff all pass) |
+| `kosha bench realworld [--corpus] [--ingests] [--report]` | Real-model Gate-0 benchmark: loop vs tuned RAG vs prompt-only + go/no-go |
+| `kosha bench corpus [--out]` | Regenerate the external stdlib benchmark corpus |
 | `kosha eval extract\|dedup\|merge\|relate\|contradict` | Score one LLM surface against seed labels |
 
 Full reference: [`docs/cli-reference.md`](docs/cli-reference.md).

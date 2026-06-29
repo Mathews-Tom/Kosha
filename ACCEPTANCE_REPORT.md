@@ -1,48 +1,49 @@
-# Kosha MVP Acceptance Report
+# Kosha Real-Model Acceptance Report (M13, Gate 0)
 
-**Verdict: PASS** - the MVP success contract holds on the reference corpus.
+**Verdict: NO-GO** - the loop does not clear the kill criterion; ship Kosha as an OSS skill and halt M14+.
 
 ## Setup
 
-- Corpus: `bundles/northwind` (12 concepts)
-- Embedding provider: `lexical-hash-256`
-- Generation provider: `extractive-3`
+- Corpus: `bundles/pydoc-stdlib` (680 concepts, external)
+- Embedding provider: `openai:bge-m3`
+- Generation provider: `openai:openai/gpt-4o-mini`
+- Held-out queries: 26
 
-Token figures are deterministic (fixed corpus, fixed queries, deterministic local providers); latency is wall-clock and environment-dependent, so the latency gate falls back to the deterministic round-trip comparison below the wall-clock noise floor.
+## Kill criterion (fixed before the run)
 
-## Criteria
+GO only if (1) loop maintenance accuracy exceeds prompt-only by at least 10%, (2) maintenance accuracy does not drop by more than 5% across >=50 sequential ingests that actually grow the corpus (>=90% of ingests add a concept), and (3) edit-drift fidelity holds. Otherwise NO-GO: ship Kosha as an OSS skill and halt M14+.
 
-| Criterion | Result | Target |
-|---|---|---|
-| C1-token-latency Hybrid token cost < RAG (at matched quality) and latency within RAG margin | PASS | hybrid total tokens < raw-docs baseline AND hybrid tokens-per-recall < RAG; hybrid latency within 2x RAG (round-trip comparison below 5ms wall-clock) |
-| C2-duplicate-rate Duplicate-rate ~= 0 after repeated ingests | PASS | duplicate-rate <= 0.00 on a re-ingest of the corpus |
-| C3-fidelity Fidelity preserved across >=20 sequential ingests | PASS | no edit-drift across >=20 ingests |
-| C4-contradiction-safety Contradictions resolved-or-escalated, 0 silent overwrites | PASS | 100% of injected contradictions resolved-or-escalated; 0 silent overwrites |
+## Retrieval / answer quality (held-out queries)
 
-### C1-token-latency — PASS
+| Strategy | Concept recall | Answer-keyword recall | Avg context tokens | Avg total tokens |
+|---|---|---|---|---|
+| kosha-hybrid | 0.96 | 1.00 | 977 | 1082 |
+| tuned-rag | 0.92 | 0.92 | 927 | 1025 |
+| prompt-only | 1.00 | 0.96 | 1045 | 1527 |
 
-_Hybrid token cost < RAG (at matched quality) and latency within RAG margin_
+## Maintenance quality (held-out dedup / novel / contradiction)
 
-tokens: hybrid 602 vs RAG 541 vs raw-docs 1131; concept recall: hybrid 1.00 vs RAG 0.62; tokens-per-recall: hybrid 602 vs RAG 865 (PASS); hybrid < raw-docs PASS. latency: hybrid 2 round-trips vs RAG 2, 0.34ms vs 0.49ms (0.69x, margin 2x; wall-clock below noise floor).
+| Decider | Accuracy | duplicate | novel | contradiction |
+|---|---|---|---|---|
+| kosha-loop | 0.50 (12/24) | 0.42 | 1.00 | 0.17 |
+| prompt-only | 0.79 (19/24) | 0.58 | 1.00 | 1.00 |
 
-### C2-duplicate-rate — PASS
+Loop minus prompt-only maintenance accuracy: -0.29 (notable margin 0.10).
 
-_Duplicate-rate ~= 0 after repeated ingests_
+## Drift across sequential ingests
 
-re-ingesting 12 existing concepts: 0 CREATE / 12 UPDATE; duplicate-rate 0.000.
-
-### C3-fidelity — PASS
-
-_Fidelity preserved across >=20 sequential ingests_
-
-20 sequential ingests: body==claim projection True; every in-force claim grounded True; unrelated claim byte-identical True; OKF-conformant each step True; latest statement reflected, telephone-game absent True.
-
-### C4-contradiction-safety — PASS
-
-_Contradictions resolved-or-escalated, 0 silent overwrites_
-
-12 injected contradictions: 12 detected; 11 resolved (temporal/authority) + 1 escalated = 12 handled; 0 silent overwrites.
+- Ingests: 50
+- Corpus grew: 80 -> 126 concepts (+46)
+- Maintenance accuracy before growth: 0.67
+- Maintenance accuracy after growth: 0.62
+- Edit-drift fidelity held: True
 
 ## Decision
 
-All success criteria: **PASS**. The MVP meets its measured success contract.
+**Verdict: NO-GO.**
+
+Wins:
+- maintenance accuracy moved 0.67 -> 0.62 across 50 ingests as the corpus grew +46 (fidelity held: True)
+
+Losses:
+- maintenance accuracy delta vs prompt-only is -0.29
