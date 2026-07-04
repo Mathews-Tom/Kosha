@@ -285,6 +285,23 @@ class GitStore:
         self._git("tag", name, ref)
         return name
 
+    def export_archive(self, ref: str, out_path: Path) -> Path:
+        """Write a deterministic archive of ``ref``'s tree to ``out_path``.
+
+        Format is inferred from ``out_path``'s suffix (``.zip`` or ``.tar``);
+        any other suffix is rejected rather than guessed, since ``git
+        archive``'s built-in gzip support depends on external tooling
+        (``tar.tar.gz.command``) that is not guaranteed to be configured.
+        The archive content is a pure function of the tree at ``ref``, so
+        exporting the same ref twice produces byte-identical output.
+        """
+        archive_format = {".zip": "zip", ".tar": "tar"}.get(out_path.suffix)
+        if archive_format is None:
+            raise GitError(f"unsupported archive format {out_path.suffix!r}: use .zip or .tar")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        self._git("archive", f"--format={archive_format}", "-o", str(out_path), ref)
+        return out_path
+
     def tags_matching(self, prefix: str) -> list[str]:
         """Return every tag name starting with ``prefix``, sorted."""
         listing = self._git("tag", "--list", f"{prefix}*")

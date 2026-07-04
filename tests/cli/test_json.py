@@ -69,6 +69,20 @@ def test_bench_json_over_northwind(capsys: pytest.CaptureFixture[str]) -> None:
     assert all("id" in signal and "fired" in signal for signal in payload["kill_signals"])
 
 
+def test_bench_json_with_report_path_stays_pure_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Regression: --report's "Wrote report to ..." confirmation must not leak
+    # onto stdout and corrupt the JSON stream when combined with --json.
+    report_path = tmp_path / "PREMISE_REPORT.md"
+    code, payload = _run_json(
+        ["bench", "--bundle", str(NORTHWIND), "--report", str(report_path), "--json"], capsys
+    )
+    assert code == 0
+    assert payload["verdict"] in {"GO", "NO-GO"}
+    assert report_path.is_file()
+
+
 def test_bench_acceptance_json_matches_exit_code(capsys: pytest.CaptureFixture[str]) -> None:
     code, payload = _run_json(
         ["bench", "acceptance", "--bundle", str(NORTHWIND), "--json"], capsys
@@ -76,6 +90,24 @@ def test_bench_acceptance_json_matches_exit_code(capsys: pytest.CaptureFixture[s
     assert (code == 0) is payload["passed"]
     assert len(payload["criteria"]) >= 1
     assert all("id" in c and "passed" in c for c in payload["criteria"])
+def test_bench_acceptance_json_with_report_path_stays_pure_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    report_path = tmp_path / "ACCEPTANCE_REPORT.md"
+    code, payload = _run_json(
+        [
+            "bench",
+            "acceptance",
+            "--bundle",
+            str(NORTHWIND),
+            "--report",
+            str(report_path),
+            "--json",
+        ],
+        capsys,
+    )
+    assert (code == 0) is payload["passed"]
+    assert report_path.is_file()
 
 
 def test_bench_realworld_json_shape() -> None:
@@ -120,6 +152,56 @@ def test_bench_realworld_json_shape() -> None:
     assert payload["maintenance_delta"] == pytest.approx(report.maintenance_delta)
     assert payload["safety_delta"] == pytest.approx(report.safety_delta)
     assert payload["drift"]["grew"] is True
+
+
+def test_bench_realworld_cli_json_end_to_end(capsys: pytest.CaptureFixture[str]) -> None:
+    # Regression: --json must print exactly one JSON document with no leaked
+    # human-readable text (the offline smoke command stays fast; see
+    # tests/bench/test_gate0_smoke.py for the full pre-registered contract).
+    code, payload = _run_json(
+        [
+            "bench",
+            "realworld",
+            "--corpus",
+            str(ROOT / "bundles" / "pydoc-stdlib"),
+            "--ingests",
+            "5",
+            "--max-queries",
+            "6",
+            "--seed-concepts",
+            "12",
+            "--json",
+        ],
+        capsys,
+    )
+    assert code == 0
+    assert payload["verdict"] in {"GO", "NO-GO"}
+    assert payload["concept_count"] > 0
+
+
+def test_bench_realworld_text_mode_prints_the_header_once(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Regression: a leftover unconditional print block duplicated every line
+    # of the summary in text mode.
+    code = main(
+        [
+            "bench",
+            "realworld",
+            "--corpus",
+            str(ROOT / "bundles" / "pydoc-stdlib"),
+            "--ingests",
+            "5",
+            "--max-queries",
+            "6",
+            "--seed-concepts",
+            "12",
+        ]
+    )
+    assert code == 0
+    out = capsys.readouterr().out
+    assert out.count("Real-model benchmark over") == 1
+    assert out.count("Gate 0 verdict:") == 1
 
 
 # --- calibrate -------------------------------------------------------------
