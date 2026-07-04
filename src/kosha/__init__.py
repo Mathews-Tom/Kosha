@@ -1,4 +1,4 @@
-"""Kosha — a self-maintaining OKF knowledge engine.
+"""Kosha — an auditable OKF governance toolkit.
 
 The package version is the single source of truth declared in ``pyproject.toml``
 and read back here from the installed distribution metadata.

@@ -65,7 +65,7 @@ uv run kosha ingest ./policy-docs --bundle bundles/northwind --authority 2 --yes
 kosha bench [--bundle PATH] [--report PATH]
 ```
 
-Run the premise-validation retrieval benchmark: compare **hybrid** (Kosha) retrieval against **RAG** and **long-context-with-raw-docs** on token cost, round-trips, latency, and recall, then evaluate the three kill signals (long-context erosion, traversal latency, dedup-by-prompt) and print a GO/NO-GO verdict.
+Run the deterministic local-provider premise-validation retrieval benchmark: compare **hybrid** (Kosha) retrieval against **RAG** and **long-context-with-raw-docs** on token cost, round-trips, latency, and recall, then evaluate the three reference-corpus kill signals (long-context erosion, traversal latency, dedup-by-prompt) and print a GO/NO-GO verdict.
 
 | Flag | Default | Description |
 |---|---|---|

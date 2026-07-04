@@ -66,7 +66,7 @@ Benchmark over bundles/northwind (8 queries, embed=lexical-hash-256, gen=extract
 Premise verdict: GO
 ```
 
-Hybrid matches long-context recall at ~half the tokens, and beats RAG on recall at comparable cost. The numbers are deterministic because the default providers are local and offline.
+On this deterministic local-provider corpus, hybrid matches long-context recall at about half the tokens and beats RAG on recall at comparable cost. These numbers are self-consistency evidence, not real-model decision-quality evidence.
 
 ## 4. Run the maintenance loop — `kosha ingest`
 
@@ -107,7 +107,7 @@ Serve a bundle through the traversal-only MCP server:
 KOSHA_BUNDLE=bundles/northwind uv run kosha-mcp
 ```
 
-This exposes five tools — `find_concepts`, `list_index`, `read_frontmatter`, `load_concept`, `follow_links` — and **no raw-text search**, so a connected agent answers by traversal and cannot grep. Point an MCP client (e.g. Claude Desktop) at the `kosha-mcp` command; see [MCP integration](mcp-integration.md) for client config and the no-MCP fallback.
+This exposes five tools — `find_concepts`, `list_index`, `read_frontmatter`, `load_concept`, `follow_links` — and **no raw-text search endpoint**, so the MCP knowledge interface is traversal-first. Point an MCP client (e.g. Claude Desktop) at the `kosha-mcp` command; see [MCP integration](mcp-integration.md) for client config and the no-MCP fallback.
 
 Ask the agent *"How long does a Gold member have to return boots?"* and it will jump with `find_concepts`, peek frontmatter, and load only `policies/returns/gold-members.md` (and maybe `membership-tier.md`) — never the playbooks or references.
 

@@ -1,6 +1,6 @@
 # MCP integration
 
-Kosha's consumer surface is a traversal-only MCP server. It exposes a fixed set of tools that walk the bundle — and deliberately **no raw-text search** — so a connected agent answers by traversal and cannot silently fall back to grepping the file tree. This is the "consumer cannot silently degrade" principle made structural: remove the grep path from the agent's toolset.
+Kosha's consumer surface is a traversal-only MCP server. It exposes a fixed set of tools that walk the bundle — and deliberately **no raw-text search endpoint** — so an MCP client can answer through traversal rather than grepping the file tree. This is an interface boundary: a host agent that also has generic filesystem tools is not sandboxed by Kosha today.
 
 ## Running the server
 
@@ -18,7 +18,7 @@ On start it loads the bundle, builds the embedding index (for the jump), and ser
 
 ## The traversal tools
 
-These five tools are the *only* way to read the knowledge base. They mirror the hybrid retrieval path: **jump** near the answer, then **traverse** to expand and verify.
+Inside the MCP surface, these five tools are the way to read the knowledge base. They mirror the hybrid retrieval path: **jump** near the answer, then **traverse** to expand and verify.
 
 | Tool | Signature | Returns |
 |---|---|---|
@@ -105,7 +105,7 @@ To keep some knowledge out of an agent's reach today, put it in a **separate bun
 
 ## Without MCP: the fallback contract
 
-Not every environment has MCP. The same traversal protocol ships as paste-in instructions so an agent honors the same no-grep, load-minimal, temporal discipline against the files directly:
+Not every environment has MCP. The same traversal protocol ships as paste-in instructions so an agent can follow the same no-grep, load-minimal, temporal discipline against the files directly:
 
 - **`AGENTS.md` fragment** — [`consumer/AGENTS.fragment.md`](../consumer/AGENTS.fragment.md). Paste into the consuming repo's `AGENTS.md`.
 - **Skill** — [`consumer/kosha-traversal/SKILL.md`](../consumer/kosha-traversal/SKILL.md). Drop into an agent's skill directory.

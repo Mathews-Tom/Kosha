@@ -1,6 +1,6 @@
 ---
 title: "Kosha — System Design"
-subtitle: Architecture, data model, and workflows for a self-maintaining OKF knowledge engine
+subtitle: Architecture, data model, and workflows for auditable OKF governance
 tagline: "Curated knowledge, kept alive."
 date: 2026-06-27
 status: Draft for internal review
@@ -17,7 +17,7 @@ These are non-negotiable constraints that shape every component below.
 |---|---|
 | **Deterministic spine, isolated LLM surfaces** | Code owns control flow, file I/O, conformance, and traversal. The LLM is called only for contained judgments (extract, dedup-adjudicate, merge-body, relate, contradict), each behind a typed interface and an eval. |
 | **The artifact is open and self-sufficient** | Output is plain OKF files in the user's Git repo. Kosha can be removed and the bundle still works in any editor/agent. No proprietary store on the critical path. |
-| **Consumer cannot silently degrade** | Retrieval is exposed as explicit MCP tools so an agent traverses the bundle; it is structurally discouraged from falling back to grep. |
+| **Traversal-first consumer surface** | Retrieval is exposed as explicit MCP tools so an agent traverses the bundle; fallback instructions encourage the same path, but only a future sandboxed serving boundary can prevent a host session from using generic filesystem search. |
 | **Every write is reviewable** | Writes go through a plan → approve → commit gate, on a branch, with a daily backup. No silent mutation of the knowledge base. |
 | **Model- and cloud-neutral** | Embeddings and generation sit behind providers; no dependency on a specific model, cloud, or agent framework. |
 | **Conformance is a gate, not a guideline** | The 3-rule OKF validator plus a granularity lint run in CI; non-conformant output never reaches `main`. |
@@ -358,7 +358,7 @@ sequenceDiagram
     Agent->>Agent: answer from minimal, current concept set
 ```
 
-Tool set: `find_concepts` (embedding jump), `list_index` (structured traversal), `read_frontmatter`, `load_concept` (filters to `effective_to = null` and access-permitted claims by default), `follow_links`. Exposing these as the only knowledge tools is what removes the agent's discretion to grep. The jump keeps latency competitive with RAG; traversal + temporal/access filtering keep answers correct in ways RAG cannot.
+Tool set: `find_concepts` (embedding jump), `list_index` (structured traversal), `read_frontmatter`, `load_concept` (filters to `effective_to = null` and access-permitted claims by default), `follow_links`. Exposing these as the MCP knowledge tools makes the served interface traversal-first. The jump keeps latency competitive with RAG on the deterministic reference corpus; traversal + temporal/access filtering keep answers auditable in ways raw search does not.
 
 ### 4.5 Graduated autonomy (the approval gate must scale)
 
@@ -417,7 +417,7 @@ flowchart LR
 | Optional hosted | Thin SaaS for non-technical onboarding + scheduled re-ingest | Lowers friction for the expansion (consumer) audience without making the core depend on it |
 | State of record | Git (branch per ingest, commit per approved plan, daily backup tag) | History, attribution, diffs, rollback — all free |
 | Derived state | Embedding index, cached locally, rebuildable | Never authoritative; safe to delete |
-| Consumer integration | MCP server (primary); skill + `AGENTS.md` fragment (fallbacks) | MCP removes grep discretion; fragments cover environments without MCP |
+| Consumer integration | MCP server (primary); skill + `AGENTS.md` fragment (fallbacks) | MCP presents a traversal-only knowledge interface; fragments cover environments without MCP but remain instructions, not an enforcement boundary |
 | CI | Validator as a gate (`exit != 0` blocks merge) | Conformance + granularity enforced before `main` |
 | Models | Embedding + generation behind a provider interface | Swap Claude/Gemini/local without touching the spine |
 | **Access control** (fault line) | **v1: bundle-level ACL** (a bundle is the permission unit). Concept-level deferred. | Concept-level ACL requires a serving layer that filters before handing files to an agent — which *breaks* the "just files, readable by anything" portability story. Take the coarse option until a customer pays for the fine one, then add it as a serving-layer feature, not a format change. |
@@ -439,7 +439,7 @@ flowchart LR
 | Contradiction silently overwritten | Contradiction detector on every update | Flag in body + log; never silent overwrite |
 | Broken cross-link | Validator (warning, not error) | Tolerated by spec; tracked as "not-yet-written knowledge" |
 | Spec major-version break | Pinned `okf_version` + conformance suite in CI | Writer adapter updated behind interface |
-| Agent ignores OKF, greps anyway | MCP server is the only knowledge tool exposed to that agent | Structurally remove the grep path in the connected context |
+| Agent ignores OKF and uses generic file search | Current MCP surface omits raw-text search; future sandboxed serving can terminate the agent's filesystem access at Kosha | Today this is an instruction/interface boundary, not a host-level restriction |
 | **Concurrent ingests edit the same concept** (multi-writer) | Branch-per-ingest; Git detects overlapping edits | Code merges auto-resolve; prose bodies do not. Serialize writes per concept via a lightweight lock, or queue ingests; on true conflict, surface both edits to the human rather than last-write-wins |
 | **Edit-drift / palimpsest decay** (repeated LLM body rewrites lose fidelity) | Claim-level provenance diff across versions; periodic reconstruct-from-sources check | Supersede claims instead of rewriting bodies (§3, §4.1); a concept must remain reconstructable from its cited sources |
 | **Approval rubber-stamping at volume** | Volume + approval-latency metrics | Graduated autonomy (§4.5): auto-apply high-confidence, reserve humans for ambiguity/conflict |
@@ -470,14 +470,14 @@ Three premise risks (Overview R9, R12, and the traversal-latency fault line) can
 |---|---|---|
 | Does structured retrieval still win? | On a realistic corpus, compare answer quality, **token cost, and wall-clock latency** across: (a) Kosha hybrid retrieval, (b) RAG, (c) long-context with raw docs. Run at *current* model prices. | If long-context-with-raw-docs matches on quality at acceptable cost/latency, the token-saving wedge is gone — re-anchor on coherence/governance or stop. |
 | Is traversal fast enough? | Measure latency of the hybrid path vs pure traversal vs single RAG hop on a deep (4–5 level) bundle. | If hybrid isn't within a usable margin of RAG, the retrieval design needs rework before anything else. |
-| Is the loop better than a prompt? | Have an existing coding agent + a good `AGENTS.md` maintain concept files on the same source stream; compare duplicate-rate and dedup quality vs Kosha's loop. | If the prompt closes most of the gap, this is a skill, not a product (Overview R11) — adjust scope honestly. |
+| Is the loop better than a prompt? | Have an existing coding agent + a good `AGENTS.md` maintain concept files on the same source stream; compare duplicate-rate and dedup quality vs Kosha's loop. | The current real-model answer is NO-GO: the loop does not beat a good prompt on measured decision-quality axes. Reopen only with a future pre-registered GO. |
 | Where does eval data come from? | Build the first golden dedup/granularity set (synthetic pairs + human adjudication) and size the effort. | If labeling is intractable at the needed scale, the quality moat is unprovable — rethink the moat. |
 
-Only after the spike clears do the build below. The spike also produces the golden corpus and the benchmark harness you'll reuse for the MVP success criteria.
+The original deterministic premise spike cleared its local-provider checks. Later real-model Gate-0 runs did not clear the product-quality bar, so the build below is governance-skill scope unless a future Gate-0 run records a GO.
 
 ### 8.1 Build cut
 
-Aligns with the moat in the Overview (maintenance loop + consumer enforcement), deliberately skipping the commoditized parts.
+Aligns with the governance-skill boundary in the Overview (maintenance loop + traversal-first consumer surface), deliberately skipping the commoditized parts.
 
 | Build | Skip for now |
 |---|---|

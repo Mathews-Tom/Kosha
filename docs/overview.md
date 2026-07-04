@@ -1,6 +1,6 @@
 ---
 title: "Kosha — System Overview"
-subtitle: A self-maintaining OKF knowledge engine for agents
+subtitle: A governance toolkit for auditable OKF knowledge maintenance
 codename: "Kosha (Sanskrit कोश — treasury/lexicon; a curated knowledge-vessel). Brand as bare 'Kosha', never 'Kosha AI', to avoid clash with the IndiaAI 'AIKosha' dataset platform."
 tagline: "Curated knowledge, kept alive."
 date: 2026-06-27
@@ -13,9 +13,9 @@ status: Draft for internal review
 
 **The product is not an OKF converter. The converter is already commodity.** Within two weeks of OKF's launch there are at least five free tools — including Google's own — that turn pages or databases into OKF bundles. Building another one is entering a red ocean on day one.
 
-**The defensible product is the loop the spec deliberately omits:** ingest a source → extract concepts → *deduplicate against what already exists* → merge → discover cross-links → flag contradictions → keep the bundle conformant and reviewable — and then **force any consumer agent to actually traverse the bundle instead of falling back to keyword search.** OKF gives you a file contract. Kosha is the engine that keeps the knowledge *alive* and the retrieval *honest*. That is where the moat is, and it is currently empty.
+**The defensible product is the loop the spec deliberately omits:** ingest a source → extract concepts → *deduplicate against what already exists* → merge → discover cross-links → flag contradictions → keep the bundle conformant and reviewable — and then provide a traversal-first consumer surface instead of relying on ad hoc keyword search. OKF gives you a file contract. Kosha is the engine that keeps the knowledge *alive* and the retrieval *auditable*.
 
-Everything below defends that position — but three premise risks could still sink it regardless of execution: long-context models eroding the token-saving rationale (R9), incumbents who already own "knowledge → agent answers" (R10), and the chance the loop is replicable by a prompt (R11). These are gating and cheap to test; do that before committing real build time (see the Premise-Validation spike in the System Design doc).
+The current evidence changes the product boundary. The deterministic local-provider gates pass, but three real-model Gate-0 runs returned NO-GO: on decision quality, the loop does not currently beat a good prompt. The sanctioned path is therefore a governance-skill product — zero silent overwrites, replayable lineage, traversal-first access — while M14+ product expansion stays halted unless a future pre-registered Gate-0 run records a GO.
 
 ---
 
@@ -28,7 +28,7 @@ Three surfaces, one loop:
 | Surface | What the user does | What Kosha does |
 |---|---|---|
 | **Ingest** | Points Kosha at sources (URLs, a repo, a DB schema, a docs site, exported tickets) or says `ingest <source>` | Extracts concepts, dedupes against the existing bundle, merges/creates, cross-links, flags contradictions, regenerates indexes, appends the log — as a reviewable Git commit |
-| **Consume** | Connects an agent via one MCP endpoint (or drops in a skill) | Serves deterministic traversal tools so the agent reads `index.md` → frontmatter → minimal concept set, and *cannot* silently fall back to grep |
+| **Consume** | Connects an agent via one MCP endpoint (or drops in a skill) | Serves deterministic traversal tools so the agent reads `index.md` → frontmatter → minimal concept set; file-based fallbacks instruct the same path but do not sandbox generic filesystem tools |
 | **Govern** | Reviews a plan, approves, browses the graph | Plan-and-approve gate, conformance/CI validation, daily Git backup, interactive graph visualizer |
 
 The unit Kosha produces and maintains is a **conformant OKF bundle** (a directory of Markdown concepts + `index.md`/`log.md`), portable and tool-neutral by construction.
@@ -69,7 +69,7 @@ Kosha owns both. That is the "why."
 
 - **The standard just shipped** (OKF v0.1, Google Cloud, 2026-06-12). First-mover window on the *maintenance + consumer* layer is open; the producer layer is already filling.
 - **The substrate is safe even if the brand isn't.** Worst case, "OKF" the name fades — but Markdown + YAML frontmatter + Git is the lowest-common-denominator substrate the whole industry is converging on (AGENTS.md, llms.txt, Obsidian-as-agent-memory). Building on it is a low-regret bet.
-- **MCP is now the default agent-tool protocol.** A consumer-side MCP server is the natural, adoptable shape for "force the agent to traverse."
+- **MCP is now the default agent-tool protocol.** A consumer-side MCP server is the natural, adoptable shape for traversal-first bundle access.
 
 ---
 
@@ -99,7 +99,7 @@ A worked end-to-end trace (ingest a policy update → UPDATE-not-CREATE → cros
 
 ### 4.1 The OKF-native landscape (≤ 1 month old, moving weekly)
 
-| Player | Shape | Audience | Maintenance loop? | Consumer enforcement? |
+| Player | Shape | Audience | Maintenance loop? | Traversal boundary? |
 |---|---|---|---|---|
 | **Google reference** (BigQuery enrichment agent, `kcmd` CLI + MCP, HTML visualizer, Knowledge Catalog ingest) | Spec author + PoC tooling, BigQuery-coupled | Enterprise data teams | No (one-shot enrichment) | Partial (kcmd sync; not forced traversal) |
 | **Suganthan OKF Generator + WordPress plugin** | Free; crawls ≤100 pages, **page → concept**, graph viz, serves at `/okf/` | SEO / site owners | No (re-generates on publish) | No |
@@ -108,7 +108,7 @@ A worked end-to-end trace (ingest a policy update → UPDATE-not-CREATE → cros
 | **WitsCode** | Done-for-you bundle + "does AI search pick you up" measurement | SEO consultancy clients | No | No |
 | **catancs/okf-skill** | Coding-agent skill: validate / query / lint / create | Coding-agent users | Partial (per-session) | Partial (skill, can be ignored) |
 
-**Read:** every OKF-native tool today is a **producer-side converter or validator**. The market has rushed the easy half. *No one ships the living maintenance loop (dedupe/merge/contradiction over time) or robust consumer enforcement.* The page-mirroring tools (Suganthan) produce exactly the bloated, duplicative bundles the concept-extraction approach is meant to avoid — which is a quality opening, not just a feature gap.
+**Read:** every OKF-native tool today is a **producer-side converter or validator**. The market has rushed the easy half. *No one ships both the living maintenance loop (dedupe/merge/contradiction over time) and a mature served traversal boundary.* The page-mirroring tools (Suganthan) produce exactly the bloated, duplicative bundles the concept-extraction approach is meant to avoid — which is a quality opening, not just a feature gap.
 
 ### 4.2 The adjacent landscape (what Kosha competes with for the *job*, not the format)
 
@@ -133,7 +133,7 @@ The dangerous competitors are not the OKF-native tools — they're the platforms
 
 ### 4.4 Feature, company, or skill? (the replicability threat)
 
-`catancs/okf-skill` already does validate/query/lint/create as an open-source skill. A competent engineer can get a meaningful fraction of the value from a good `AGENTS.md` plus an existing coding agent told to maintain concept files. So the bar is concrete: **the maintenance loop must be demonstrably better than a prompt**, or this is a skill, not a product. What makes Kosha not-a-skill must be the parts a prompt can't replicate — measured dedup quality over time, a real eval harness, and consumer enforcement — not the conversion or the file-writing. If a 200-line skill closes 70% of the gap, the remaining 30% has to be worth paying for. Prove that early or accept it's an open-source skill with a services layer, not a venture-scale product.
+`catancs/okf-skill` already does validate/query/lint/create as an open-source skill. A competent engineer can get a meaningful fraction of the value from a good `AGENTS.md` plus an existing coding agent told to maintain concept files. Real-model Gate-0 has now tested the decision-quality bar and returned NO-GO: the maintenance loop does not currently beat a good prompt. Kosha's current product boundary is therefore an open-source governance skill with a verifiable audit trail, not an authorized decision-quality product. Reopen that boundary only with a future pre-registered GO.
 
 ### 4.5 ICP decision (a premise worth challenging)
 
@@ -152,17 +152,17 @@ The brief says "anyone can use by sheer plug-and-play." That phrasing hides a fo
 
 | # | Risk | Severity | Mitigation / position |
 |---|---|---|---|
-| R1 | **Standard immaturity.** v0.1, single-vendor; field caveat from practitioners is "an optimization, not something you need yet" until agents support OKF out of the box. | High | Kosha's value (token/latency/error reduction, anti-duplication) is real *today* regardless of OKF adoption. Substrate (MD+YAML+Git) survives even if the brand does not. |
-| R2 | **Producer layer commoditized.** Free converters already exist, including Google's. | High | Don't compete there. Differentiate on maintenance loop + consumer enforcement + quality. Treat conversion as a loss-leader feature, not the product. |
-| R3 | **Google platform risk.** Knowledge Catalog / `kcmd` could grow the maintenance loop and a consumer adapter. | Med-High | Stay model- and cloud-neutral (Google's is BigQuery/GCP-coupled). Win on portability, local-first, and agent-agnostic consumer enforcement. Speed + neutrality are the hedge. |
+| R1 | **Standard immaturity.** v0.1, single-vendor; field caveat from practitioners is "an optimization, not something you need yet" until agents support OKF out of the box. | High | Kosha's governance value (anti-duplication, audit trail, replayable changes) is real *today* regardless of OKF adoption. Substrate (MD+YAML+Git) survives even if the brand does not. |
+| R2 | **Producer layer commoditized.** Free converters already exist, including Google's. | High | Don't compete there. Differentiate on maintenance loop + governance guarantee + traversal-first consumption. Treat conversion as a loss-leader feature, not the product. |
+| R3 | **Google platform risk.** Knowledge Catalog / `kcmd` could grow the maintenance loop and a consumer adapter. | Med-High | Stay model- and cloud-neutral (Google's is BigQuery/GCP-coupled). Win on portability, local-first, and agent-agnostic auditability. Speed + neutrality are the hedge. |
 | R4 | **Spec churn.** A major version bump can rename required fields / reserved filenames. | Med | Pin `okf_version`; keep the writer behind an adapter; conformance suite gates regressions. Cheap to track a one-page spec. |
 | R5 | **"Plug-and-play" vs quality tension.** Zero-touch favors page-mirroring; high-quality concept extraction needs judgment. | Med-High | Make the *common path* zero-touch but back it with the dedup/granularity loop; expose a review gate for the judgment calls rather than hiding them. |
 | R6 | **Auto-edit corrupts the knowledge base.** An agent that rewrites the brain can damage it. | Med | Human approve-before-write gate, Git branch-not-main, daily backup, contradiction flagging instead of silent overwrite. Treat these as required defaults. |
-| R7 | **Differentiation is illegible to non-technical buyers.** "Better dedup" doesn't demo. | Med | Reinforces the developer-wedge recommendation; for developers, show the token/latency/duplicate-rate delta on their own corpus. |
+| R7 | **Differentiation is illegible to non-technical buyers.** "Better dedup" doesn't demo. | Med | Reinforces the developer-wedge recommendation; for developers, show the audit trail, token/latency profile, and duplicate-rate checks on their own corpus. |
 | R8 | **Cross-org exchange needs trust/provenance** the spec lacks (the "buy expert bundles" vision). | Low (near-term) | Out of scope for v1. Note as a v2 platform bet, not a wedge. |
 | R9 | **Long-context erosion (premise risk).** The token-saving thesis assumes structured retrieval beats dumping docs into context. As windows hit 1–10M tokens and per-token cost falls, "just put the raw docs in context" gets stronger every quarter. | **High** | Don't anchor on token savings alone. Re-anchor the value on *coherence + dedup + governance* (things long context does **not** give you). Benchmark traversal vs long-context vs RAG on a real corpus at current prices — this is gating (see Premise-Validation spike in the Design doc). |
 | R10 | **Incumbent absorption.** Glean / Copilot / Notion / Rovo / Dash already own "knowledge → agent answers" and could add OKF I/O. | High | Compete only where they won't follow: open, portable, agent-agnostic artifact + local-first. If that's not enough differentiation, this is a niche, not a market. |
-| R11 | **Replicable by a skill.** Much of the value may be reachable via `AGENTS.md` + an existing agent (cf. `catancs/okf-skill`). | High | The loop must beat a prompt on *measured* dedup quality and consumer enforcement, or accept it's a skill + services play. Set this bar before building (see §4.4). |
+| R11 | **Replicable by a skill.** Much of the value may be reachable via `AGENTS.md` + an existing agent (cf. `catancs/okf-skill`). | High | Current real-model Gate-0 evidence says the loop does not beat a prompt on measured decision quality. Treat Kosha as a governance skill until a future pre-registered run records a GO. |
 | R12 | **Source-of-truth conflict / staleness.** One-way ingest from living sources (Confluence, Slack, Drive) makes the bundle a drifting copy the moment it's written. | **High** | Decide explicitly: cache (accept staleness + re-ingest cadence) vs source-of-truth (migration friction). Undecided = "yet another silo." Gating decision (see Design doc §6). |
 | R13 | **Maintenance-loop unit economics.** Every ingest = many LLM calls (extract+dedup+merge+link+contradiction), ongoing — unlike RAG's cheap one-time embed. | Med-High | Model cost-per-ingest before promising "ingest everything"; it shapes pricing and may kill a consumer tier. Use cheap models + deterministic short-circuits in the dedup band. |
 | R14 | **Marketplace IP & liability.** Bundles LLM-extracted from copyrighted sources raise ownership questions; sold "expert bundles" raise professional-liability questions. | Low (near-term) / High (if pursued) | Kills the v3 marketplace earlier than the missing trust layer. Keep marketplace out of scope until there's a provenance + licensing + disclaimer model. |
@@ -175,8 +175,8 @@ The brief says "anyone can use by sheer plug-and-play." That phrasing hides a fo
 
 Ranked by defensibility. The format itself is **not** on this list — it's commodity.
 
-1. **Maintenance-loop quality (the data/eval moat).** Getting "this source updates *that* concept, don't spawn a duplicate" right — at high precision/recall, measured against golden corpora — is genuinely hard and compounds. Your edge is a rigorous eval harness (one suite per LLM surface) plus accumulated golden bundles and failure cases. This is the closest thing to a durable moat and it matches your background directly. **The catch nobody names:** the moat *is* the labeled data, and you don't have it yet. Hand-labeling thousands of concept-pair "same/different" judgments and granularity calls is the actual hard part. No labeled corpus → no measurable quality → no moat. Plan the data acquisition (synthetic generation + human adjudication on disagreements + harvesting real ingest decisions) as a first-class workstream, not an afterthought.
-2. **Consumer-enforcement standardization (the distribution moat).** Whoever ships the MCP traversal server that agents *standardize on* owns the consumption side. If "to use OKF knowledge you point your agent at Kosha's endpoint" becomes the default, that's sticky integration surface. Land-and-expand from a free, excellent consumer adapter. **The catch:** this assumes winning a standards race you don't control against the spec's author (Google's `kcmd` is already a consumer adapter). Betting the moat on out-adopting Google on *their* format is fragile. Treat this as a fast-mover advantage and a quality play, not a structural moat — and don't let it be the only one.
+1. **Maintenance-loop quality (conditional data/eval moat).** Getting "this source updates *that* concept, don't spawn a duplicate" right — at high precision/recall, measured against golden corpora — is genuinely hard and compounds. Today this is an unearned moat claim: three real-model Gate-0 runs returned NO-GO, and the labeled corpus is still too small. No labeled corpus → no measurable quality → no moat. Plan the data acquisition before reopening the product-quality claim.
+2. **Traversal-surface standardization (distribution advantage, not enforcement by itself).** Whoever ships the MCP traversal server that agents *standardize on* owns the consumption side. If "to use OKF knowledge you point your agent at Kosha's endpoint" becomes the default, that's sticky integration surface. The catch: a host session with generic filesystem tools can still search files unless a future sandboxed boundary removes that access. Treat this as a fast-mover advantage and a quality play, not a structural moat.
 3. **Closed-loop workflow lock-in (the workflow moat).** Producer + consumer + governance in one Git-native, CI-gated loop creates switching cost at the *process* level even though the artifact is open. The openness of the artifact is the trust that gets you in; the loop is what keeps you.
 4. **Weak / non-moats:** the OKF format, validators, page converters, the visualizer. Useful as free top-of-funnel, never as the defensible core.
 
@@ -220,7 +220,7 @@ Three of these are **gating** — they can each independently invalidate the hea
 - **[GATING] Eval-data acquisition:** where does the labeled dedup/granularity corpus come from? The moat depends on data you don't have.
 - **ICP lock:** developer-first (recommended) vs consumer-first. Gates everything downstream.
 - **Feature/company/skill:** what specifically makes this not replicable by `AGENTS.md` + an existing agent? Define the must-beat-a-prompt bar.
-- **Consumer adapter form:** MCP server (strongest, removes grep discretion) vs skill vs `AGENTS.md` fragment — or ship all three and let the environment pick.
+- **Consumer adapter form:** MCP server (strongest traversal interface) vs skill vs `AGENTS.md` fragment — or ship all three and let the environment pick. Host-level enforcement requires a sandboxed serving boundary, not just instructions.
 - **Quality bar:** what dedup precision/recall and duplicate-rate / token-delta on a reference corpus constitutes "good enough to charge for"?
 - **Hosting model:** local-first CLI + MCP (matches your stack and the anti-lock-in story) vs hosted SaaS (easier onboarding, and possibly *required* for concept-level access control — see Design doc §6).
 - **Pricing legibility:** how to make "better maintenance" demoable on a prospect's own knowledge in under five minutes.

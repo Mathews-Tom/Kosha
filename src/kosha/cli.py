@@ -73,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Construct the root argument parser."""
     parser = argparse.ArgumentParser(
         prog="kosha",
-        description="Self-maintaining OKF knowledge engine.",
+        description="Auditable OKF governance toolkit.",
     )
     parser.add_argument(
         "--version",
