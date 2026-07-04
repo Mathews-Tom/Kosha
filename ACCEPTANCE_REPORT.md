@@ -1,6 +1,6 @@
-# Kosha MVP Acceptance Report
+# Kosha Deterministic Self-Consistency Report
 
-**Verdict: PASS** - the MVP success contract holds on the reference corpus.
+**Verdict: PASS** - the deterministic local-provider MVP mechanics hold on the reference corpus. This is not a real-model Gate-0 decision-quality result; current real-model Gate-0 status is **NO-GO** and M14+ remains halted. See `docs/gate0-status.md`.
 
 ## Setup
 
@@ -45,4 +45,4 @@ _Contradictions resolved-or-escalated, 0 silent overwrites_
 
 ## Decision
 
-All success criteria: **PASS**. The MVP meets its measured success contract.
+All deterministic self-consistency criteria: **PASS**. The reference-corpus mechanics meet their measured contract, but this report does not authorize decision-quality superiority or M14+ product expansion.
