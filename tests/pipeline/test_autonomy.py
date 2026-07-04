@@ -23,6 +23,7 @@ def _change(
     impact: Impact = Impact.LOW,
     contradiction: ContradictionState = ContradictionState.NONE,
     kind: ChangeKind = ChangeKind.CREATE,
+    secret_detectors: frozenset[str] = frozenset(),
 ) -> FileChange:
     return FileChange(
         path=path,
@@ -31,6 +32,7 @@ def _change(
         confidence=confidence,
         impact=impact,
         contradiction=contradiction,
+        secret_detectors=secret_detectors,
     )
 
 
@@ -70,6 +72,20 @@ def test_mid_confidence_routes_skim() -> None:
 def test_force_block_overrides_an_otherwise_auto_change() -> None:
     thresholds = AutonomyThresholds(force_block=True)
     assert route_change(_change(), thresholds).lane is Lane.BLOCK
+
+
+def test_secret_detection_blocks_an_otherwise_auto_change() -> None:
+    route = route_change(_change(secret_detectors=frozenset({"aws-access-key-id"})))
+    assert route.lane is Lane.BLOCK
+    assert "secret-like content detected" in route.reason
+    assert "aws-access-key-id" in route.reason
+
+
+def test_secret_detection_overrides_high_confidence_and_low_impact() -> None:
+    route = route_change(
+        _change(confidence=1.0, impact=Impact.LOW, secret_detectors=frozenset({"jwt"}))
+    )
+    assert route.lane is Lane.BLOCK
 
 
 def test_invalid_thresholds_rejected() -> None:

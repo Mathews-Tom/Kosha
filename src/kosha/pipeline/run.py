@@ -65,6 +65,7 @@ from kosha.plan import (
 )
 from kosha.providers import resolve_embedding_provider, resolve_generation_provider
 from kosha.providers.base import EmbeddingProvider, GenerationProvider
+from kosha.security.secret_scan import scan_text
 from kosha.telemetry import (
     TelemetrySink,
     emit_decision,
@@ -208,11 +209,13 @@ def ingest(
             _resolve_and_apply(draft, raw.source, tools, accum)
 
     linked = crosslink(bundle.model_copy(update={"concepts": accum.concepts}), LexicalRelator())
-    changes = [
-        *_concept_changes(bundle, linked, accum.meta),
-        *_index_changes(bundle_root, linked),
-        *_log_change(bundle_root, accum.meta, asof),
-    ]
+    changes = _scan_secrets(
+        [
+            *_concept_changes(bundle, linked, accum.meta),
+            *_index_changes(bundle_root, linked),
+            *_log_change(bundle_root, accum.meta, asof),
+        ]
+    )
     plan = build_plan(changes, accum.flags)
     routing = route_plan(plan, thresholds)
     for route in routing.routes:
@@ -339,6 +342,22 @@ def _concept_changes(
             )
         )
     return changes
+
+
+def _scan_secrets(changes: list[FileChange]) -> list[FileChange]:
+    """Flag any change whose content matches a secret-like pattern.
+
+    A flagged change forces its own BLOCK routing (see route_change), so a
+    secret-like write requires explicit human approval rather than
+    auto-applying on the ingest branch.
+    """
+    scanned: list[FileChange] = []
+    for change in changes:
+        detectors = scan_text(change.content)
+        scanned.append(
+            change.model_copy(update={"secret_detectors": detectors}) if detectors else change
+        )
+    return scanned
 
 
 def _index_changes(bundle_root: Path, linked: Bundle) -> list[FileChange]:
