@@ -84,14 +84,15 @@ Strategy roles: `hybrid` and the embedding index are production components reuse
 kosha bench acceptance [--bundle PATH] [--report PATH]
 ```
 
-Gate the four MVP success criteria on the golden corpus. **Exit code `0` iff every criterion passes**, otherwise `1` — this is the release gate.
+Gate the five MVP success criteria on the golden corpus. **Exit code `0` iff every criterion passes**, otherwise `1` — this is the release gate.
 
 | Criterion | Checks |
 |---|---|
 | C1 token/latency | hybrid total tokens < raw-docs **and** tokens-per-recall < RAG; latency within 2× RAG |
-| C2 duplicate-rate | re-ingesting the corpus yields ≈0 duplicates |
-| C3 fidelity | no edit-drift across ≥20 sequential ingests |
-| C4 contradiction-safety | 100% of injected contradictions resolved-or-escalated; 0 silent overwrites |
+| C2 deep-latency | KS2 traversal latency still holds on a deterministic depth 4-5 bundle |
+| C3 duplicate-rate | re-ingesting the corpus yields ≈0 duplicates |
+| C4 fidelity | no edit-drift across ≥20 sequential ingests |
+| C5 contradiction-safety | 100% of injected contradictions resolved-or-escalated; 0 silent overwrites |
 
 ```bash
 uv run kosha bench acceptance --report ACCEPTANCE_REPORT.md
