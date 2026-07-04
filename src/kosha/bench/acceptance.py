@@ -44,7 +44,9 @@ from kosha.dedup import LexicalAdjudicator
 from kosha.eval.dedup import DuplicateRateReport, evaluate_duplicate_rate
 from kosha.extract import ConceptDraft
 from kosha.merge import (
+    ClaimTargeter,
     EditDriftError,
+    GenerationClaimTargeter,
     LexicalClaimTargeter,
     assert_no_drift,
     create_concept,
@@ -172,7 +174,6 @@ def duplicate_rate_criterion(duplicates: DuplicateRateReport) -> AcceptanceCrite
         ),
     )
 
-
 @dataclass(frozen=True)
 class FidelityReport:
     """Outcome of driving one concept through many sequential supersede ingests."""
@@ -183,10 +184,10 @@ class FidelityReport:
     survivor_intact: bool
     conformant: bool
     latest_reflected: bool
+    targeter_name: str = "lexical-jaccard-0.30"
 
     @property
     def ok(self) -> bool:
-        """Whether fidelity held across at least the required number of ingests."""
         return (
             self.ingests >= FIDELITY_INGESTS
             and self.drift_free
@@ -196,9 +197,12 @@ class FidelityReport:
             and self.latest_reflected
         )
 
-
 def measure_fidelity(
-    work_dir: Path | None = None, *, ingests: int = FIDELITY_INGESTS
+    work_dir: Path | None = None,
+    *,
+    ingests: int = FIDELITY_INGESTS,
+    targeter: ClaimTargeter | None = None,
+    generation_provider: GenerationProvider | None = None,
 ) -> FidelityReport:
     """Supersede one claim ``ingests`` times; verify no edit-drift the whole way.
 
@@ -209,16 +213,16 @@ def measure_fidelity(
     conformance check needs a directory to write into; when ``work_dir`` is None a
     throwaway temp directory is used so callers need not manage scratch state.
     """
+    resolved_targeter = _resolve_fidelity_targeter(targeter, generation_provider)
     if work_dir is None:
         with tempfile.TemporaryDirectory() as scratch:
-            return _run_fidelity(Path(scratch), ingests)
-    return _run_fidelity(work_dir / "fidelity", ingests)
+            return _run_fidelity(Path(scratch), ingests, resolved_targeter)
+    return _run_fidelity(work_dir / "fidelity", ingests, resolved_targeter)
 
 
-def _run_fidelity(root: Path, ingests: int) -> FidelityReport:
+def _run_fidelity(root: Path, ingests: int, targeter: ClaimTargeter) -> FidelityReport:
     start = datetime(2026, 1, 1, tzinfo=UTC)
     gold = "Gold members receive free return shipping."
-    targeter = LexicalClaimTargeter()
 
     def returns_statement(days: int) -> str:
         return f"Standard returns are accepted within {days} days of delivery."
@@ -284,6 +288,7 @@ def _run_fidelity(root: Path, ingests: int) -> FidelityReport:
         reconstructable=reconstructable,
         survivor_intact=survivor_intact,
         conformant=conformant,
+        targeter_name=targeter.name,
         latest_reflected=latest_reflected,
     )
 
@@ -296,13 +301,26 @@ def fidelity_criterion(fidelity: FidelityReport) -> AcceptanceCriterion:
         passed=fidelity.ok,
         target=f"no edit-drift across >={FIDELITY_INGESTS} ingests",
         evidence=(
-            f"{fidelity.ingests} sequential ingests: body==claim projection "
-            f"{fidelity.drift_free}; every in-force claim grounded "
-            f"{fidelity.reconstructable}; unrelated claim byte-identical "
+            f"{fidelity.ingests} sequential ingests via {fidelity.targeter_name}: "
+            f"body==claim projection {fidelity.drift_free}; every in-force claim "
+            f"grounded {fidelity.reconstructable}; unrelated claim byte-identical "
             f"{fidelity.survivor_intact}; OKF-conformant each step {fidelity.conformant}; "
             f"latest statement reflected, telephone-game absent {fidelity.latest_reflected}."
         ),
     )
+
+
+def _resolve_fidelity_targeter(
+    targeter: ClaimTargeter | None,
+    generation_provider: GenerationProvider | None,
+) -> ClaimTargeter:
+    if targeter is not None and generation_provider is not None:
+        raise ValueError("pass targeter or generation_provider, not both")
+    if targeter is not None:
+        return targeter
+    if generation_provider is not None:
+        return GenerationClaimTargeter(generation_provider)
+    return LexicalClaimTargeter()
 
 
 @dataclass(frozen=True)
