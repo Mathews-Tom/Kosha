@@ -19,7 +19,7 @@ from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from kosha import __version__
+from kosha import __version__, cli_json
 from kosha.approve import render_plan, render_routing
 from kosha.audit import build_report, require_export_access, to_json, to_markdown
 from kosha.bench import (
@@ -101,6 +101,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Path to the OKF bundle directory.",
     )
+    validate_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
     bench_parser = subparsers.add_parser(
         "bench",
         help="Run the Premise-Validation retrieval benchmark.",
@@ -116,6 +121,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Write the benchmark report to this path.",
+    )
+    bench_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
     )
     bench_subparsers = bench_parser.add_subparsers(dest="bench_command")
     acceptance_parser = bench_subparsers.add_parser(
@@ -133,6 +143,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Write the acceptance report to this path.",
+    )
+    acceptance_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
     )
     corpus_parser = bench_subparsers.add_parser(
         "corpus",
@@ -202,6 +217,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write the acceptance report to this path.",
     )
+    realworld_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
     calibrate_parser = subparsers.add_parser(
         "calibrate",
         help="Fit the dedup thresholds to the configured embedding on the seed labels.",
@@ -218,6 +238,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.02,
         help="Safety margin past the seed score extremes (default: 0.02).",
     )
+    calibrate_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
     eval_parser = subparsers.add_parser(
         "eval",
         help="Run an LLM-surface eval suite.",
@@ -232,6 +257,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=_GRANULARITY_LABELS,
         help="Granularity seed labels (default: labels/granularity_seed.jsonl).",
+    )
+    extract_eval_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
     )
     dedup_eval_parser = eval_subparsers.add_parser(
         "dedup",
@@ -249,6 +279,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=_DEFAULT_BUNDLE,
         help="Repeated-ingest bundle for duplicate rate (default: bundles/northwind).",
     )
+    dedup_eval_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
     merge_eval_parser = eval_subparsers.add_parser(
         "merge",
         help="Score the merge surface: claim-targeting accuracy.",
@@ -258,6 +293,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=_MERGE_LABELS,
         help="Merge claim-targeting cases (default: labels/merge_seed.jsonl).",
+    )
+    merge_eval_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
     )
     relate_eval_parser = eval_subparsers.add_parser(
         "relate",
@@ -269,6 +309,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=_RELATE_LABELS,
         help="Relate cases (default: labels/relate_seed.jsonl).",
     )
+    relate_eval_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
     contradict_eval_parser = eval_subparsers.add_parser(
         "contradict",
         help="Score the contradiction detector: conflict-detection precision/recall/F1.",
@@ -278,6 +323,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=_CONTRADICT_LABELS,
         help="Contradiction cases (default: labels/contradict_seed.jsonl).",
+    )
+    contradict_eval_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
     )
     ingest_parser = subparsers.add_parser(
         "ingest",
@@ -318,6 +368,11 @@ def build_parser() -> argparse.ArgumentParser:
             "Approving reviewer's identity (e.g. 'Jane Doe <jane@example.com>'), "
             "recorded as a Reviewed-by trailer on the commit."
         ),
+    )
+    ingest_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
     )
     export_parser = subparsers.add_parser(
         "export",
@@ -362,15 +417,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "validate":
-        return _run_validate(args.bundle)
+        return _run_validate(args.bundle, args.json)
     if args.command == "bench":
         if getattr(args, "bench_command", None) == "acceptance":
-            return _run_bench_acceptance(args.bundle, args.report)
+            return _run_bench_acceptance(args.bundle, args.report, args.json)
         if getattr(args, "bench_command", None) == "corpus":
             return _run_bench_corpus(args.out)
         if getattr(args, "bench_command", None) == "realworld":
             return _run_bench_realworld(args)
-        return _run_bench(args.bundle, args.report)
+        return _run_bench(args.bundle, args.report, args.json)
     if args.command == "eval":
         return _run_eval(args)
     if args.command == "ingest":
@@ -406,6 +461,9 @@ def _run_ingest(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"kosha: invalid --reviewer: {exc}", file=sys.stderr)
         return 2
+    if args.json:
+        print(cli_json.dumps(cli_json.ingest_json(result, dry_run=args.dry_run)))
+        return 0
     print(render_plan(result.plan))
     print()
     print(render_routing(result.routing))
@@ -446,12 +504,15 @@ def _run_export(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_validate(bundle: Path) -> int:
+def _run_validate(bundle: Path, json_output: bool = False) -> int:
     """Validate ``bundle`` and return a process exit code (0 = conformant)."""
     if not bundle.is_dir():
         print(f"kosha: not a bundle directory: {bundle}", file=sys.stderr)
         return 2
     report = validate_bundle(bundle)
+    if json_output:
+        print(cli_json.dumps(cli_json.validate_json(bundle, report)))
+        return 1 if report.errors else 0
     for finding in report.findings:
         print(f"{finding.severity.value}: {finding.path}: [{finding.rule.value}] {finding.message}")
     errors = len(report.errors)
@@ -521,7 +582,24 @@ def _run_bench_realworld(args: argparse.Namespace) -> int:
         f"vs prompt-only {report.safety_by_name('prompt_only').safety_rate:.2f} "
         f"(delta {report.safety_delta:+.2f}, the reframed Gate-0 moat)"
     )
-    print(f"Gate 0 verdict: {report.verdict}")
+    if args.json:
+        print(cli_json.dumps(cli_json.bench_realworld_json(args.corpus, report)))
+    else:
+        print(
+            f"Real-model benchmark over {args.corpus} ({report.concept_count} concepts, "
+            f"embed={report.embedding_provider}, gen={report.generation_provider})"
+        )
+        print(
+            f"Maintenance accuracy: loop {report.maintenance_by_name('kosha_loop').accuracy:.2f} "
+            f"vs prompt-only {report.maintenance_by_name('prompt_only').accuracy:.2f} "
+            f"(delta {report.maintenance_delta:+.2f})"
+        )
+        print(
+            f"Contradiction safety: loop {report.safety_by_name('kosha_loop').safety_rate:.2f} "
+            f"vs prompt-only {report.safety_by_name('prompt_only').safety_rate:.2f} "
+            f"(delta {report.safety_delta:+.2f}, the reframed Gate-0 moat)"
+        )
+        print(f"Gate 0 verdict: {report.verdict}")
     if args.report is not None:
         args.report.write_text(render_realworld_report(report), encoding="utf-8")
         print(f"Wrote report to {args.report}")
@@ -543,22 +621,20 @@ def _run_calibrate(args: argparse.Namespace) -> int:
     calibration = calibrate_thresholds(
         pairs, resolve_embedding_provider(), margin=args.margin
     )
+    adjudicator = calibrate_adjudicator_threshold(pairs)
+    targeter = calibrate_targeter_threshold(load_merge_cases(_MERGE_LABELS))
+    relator = calibrate_relator_threshold(load_relate_cases(_RELATE_LABELS))
+    if args.json:
+        print(cli_json.dumps(cli_json.calibrate_json(calibration, adjudicator, targeter, relator)))
+        return 0
     print(render_calibration(calibration))
-    print(render_single_threshold_calibration(calibrate_adjudicator_threshold(pairs)))
-    print(
-        render_single_threshold_calibration(
-            calibrate_targeter_threshold(load_merge_cases(_MERGE_LABELS))
-        )
-    )
-    print(
-        render_single_threshold_calibration(
-            calibrate_relator_threshold(load_relate_cases(_RELATE_LABELS))
-        )
-    )
+    print(render_single_threshold_calibration(adjudicator))
+    print(render_single_threshold_calibration(targeter))
+    print(render_single_threshold_calibration(relator))
     return 0
 
 
-def _run_bench(bundle_path: Path, report_path: Path | None) -> int:
+def _run_bench(bundle_path: Path, report_path: Path | None, json_output: bool = False) -> int:
     """Run the benchmark + dedup gate on ``bundle_path``; optionally write a report."""
     if not bundle_path.is_dir():
         print(f"kosha: not a bundle directory: {bundle_path}", file=sys.stderr)
@@ -570,15 +646,19 @@ def _run_bench(bundle_path: Path, report_path: Path | None) -> int:
     granularity = evaluate_granularity(load_granularity_labels(_GRANULARITY_LABELS))
     kill_signals = evaluate_kill_signals(report, dedup)
     verdict = go_no_go(kill_signals)
-    print(
-        f"Benchmark over {bundle_path} "
-        f"({report.query_count} queries, embed={report.embedding_provider}, "
-        f"gen={report.generation_provider})"
-    )
-    print(render_table(report))
-    for signal in kill_signals:
-        print(f"{signal.id}: {signal.verdict}")
-    print(f"Premise verdict: {verdict}")
+    if json_output:
+        payload = cli_json.bench_json(bundle_path, report, dedup, kill_signals, verdict)
+        print(cli_json.dumps(payload))
+    else:
+        print(
+            f"Benchmark over {bundle_path} "
+            f"({report.query_count} queries, embed={report.embedding_provider}, "
+            f"gen={report.generation_provider})"
+        )
+        print(render_table(report))
+        for signal in kill_signals:
+            print(f"{signal.id}: {signal.verdict}")
+        print(f"Premise verdict: {verdict}")
     if report_path is not None:
         document = render_premise_report(
             bundle_path=str(bundle_path),
@@ -594,7 +674,9 @@ def _run_bench(bundle_path: Path, report_path: Path | None) -> int:
     return 0
 
 
-def _run_bench_acceptance(bundle_path: Path, report_path: Path | None) -> int:
+def _run_bench_acceptance(
+    bundle_path: Path, report_path: Path | None, json_output: bool = False
+) -> int:
     """Gate the MVP success criteria; exit 0 iff every criterion passes."""
     if not bundle_path.is_dir():
         print(f"kosha: not a bundle directory: {bundle_path}", file=sys.stderr)
@@ -606,16 +688,19 @@ def _run_bench_acceptance(bundle_path: Path, report_path: Path | None) -> int:
         resolve_generation_provider(),
         bundle_path=str(bundle_path),
     )
-    print(
-        f"MVP acceptance over {bundle_path} "
-        f"({report.concept_count} concepts, embed={report.embedding_provider}, "
-        f"gen={report.generation_provider})"
-    )
-    for criterion in report.criteria:
-        status = "PASS" if criterion.passed else "FAIL"
-        print(f"{criterion.id}: {status} — {criterion.name}")
-    verdict = "PASS" if report.passed else "FAIL"
-    print(f"MVP success contract: {verdict}")
+    if json_output:
+        print(cli_json.dumps(cli_json.bench_acceptance_json(bundle_path, report)))
+    else:
+        print(
+            f"MVP acceptance over {bundle_path} "
+            f"({report.concept_count} concepts, embed={report.embedding_provider}, "
+            f"gen={report.generation_provider})"
+        )
+        for criterion in report.criteria:
+            status = "PASS" if criterion.passed else "FAIL"
+            print(f"{criterion.id}: {status} — {criterion.name}")
+        verdict = "PASS" if report.passed else "FAIL"
+        print(f"MVP success contract: {verdict}")
     if report_path is not None:
         report_path.write_text(render_acceptance_report(report), encoding="utf-8")
         print(f"Wrote report to {report_path}")
@@ -625,26 +710,29 @@ def _run_bench_acceptance(bundle_path: Path, report_path: Path | None) -> int:
 def _run_eval(args: argparse.Namespace) -> int:
     """Dispatch ``kosha eval <suite>``."""
     if args.eval_command == "extract":
-        return _run_eval_extract(args.labels)
+        return _run_eval_extract(args.labels, args.json)
     if args.eval_command == "dedup":
-        return _run_eval_dedup(args.labels, args.bundle)
+        return _run_eval_dedup(args.labels, args.bundle, args.json)
     if args.eval_command == "merge":
-        return _run_eval_merge(args.labels)
+        return _run_eval_merge(args.labels, args.json)
     if args.eval_command == "relate":
-        return _run_eval_relate(args.labels)
+        return _run_eval_relate(args.labels, args.json)
     if args.eval_command == "contradict":
-        return _run_eval_contradict(args.labels)
+        return _run_eval_contradict(args.labels, args.json)
     print("kosha: usage: kosha eval {extract,dedup,merge,relate,contradict} [...]", file=sys.stderr)
     return 2
 
 
-def _run_eval_extract(labels_path: Path) -> int:
+def _run_eval_extract(labels_path: Path, json_output: bool = False) -> int:
     """Score the concept extractor against the seed granularity labels."""
     if not labels_path.is_file():
         print(f"kosha: labels file not found: {labels_path}", file=sys.stderr)
         return 2
     provider = resolve_generation_provider()
     report = evaluate_extractor(load_granularity_labels(labels_path), provider)
+    if json_output:
+        print(cli_json.dumps(cli_json.eval_extract_json(labels_path, provider.name, report)))
+        return 0
     print(
         f"Extractor eval over {labels_path} "
         f"({report.label_count} labels, gen={provider.name})"
@@ -653,7 +741,7 @@ def _run_eval_extract(labels_path: Path) -> int:
     return 0
 
 
-def _run_eval_dedup(labels_path: Path, bundle_path: Path) -> int:
+def _run_eval_dedup(labels_path: Path, bundle_path: Path, json_output: bool = False) -> int:
     """Score the dedup resolver: pair precision/recall + repeated-ingest duplicate rate."""
     if not labels_path.is_file():
         print(f"kosha: labels file not found: {labels_path}", file=sys.stderr)
@@ -669,6 +757,20 @@ def _run_eval_dedup(labels_path: Path, bundle_path: Path) -> int:
     duplicates = evaluate_duplicate_rate(
         load_bundle(bundle_path), embedding_provider, adjudicator=adjudicator
     )
+    if json_output:
+        print(
+            cli_json.dumps(
+                cli_json.eval_dedup_json(
+                    labels_path,
+                    bundle_path,
+                    embedding_provider.name,
+                    adjudicator.name,
+                    report,
+                    duplicates,
+                )
+            )
+        )
+        return 0
     print(
         f"Dedup eval over {labels_path} "
         f"({report.pair_count} pairs, embed={embedding_provider.name}, adj={adjudicator.name})"
@@ -684,25 +786,31 @@ def _run_eval_dedup(labels_path: Path, bundle_path: Path) -> int:
     return 0
 
 
-def _run_eval_merge(labels_path: Path) -> int:
+def _run_eval_merge(labels_path: Path, json_output: bool = False) -> int:
     """Score the merge surface's claim-targeting accuracy against seed cases."""
     if not labels_path.is_file():
         print(f"kosha: labels file not found: {labels_path}", file=sys.stderr)
         return 2
     targeter = LexicalClaimTargeter()
     report = evaluate_merge(load_merge_cases(labels_path), targeter)
+    if json_output:
+        print(cli_json.dumps(cli_json.eval_merge_json(labels_path, targeter.name, report)))
+        return 0
     print(f"Merge eval over {labels_path} ({report.case_count} cases, targeter={targeter.name})")
     print(f"targeting accuracy: {report.score:.3f} ({report.correct}/{report.case_count})")
     return 0
 
 
-def _run_eval_relate(labels_path: Path) -> int:
+def _run_eval_relate(labels_path: Path, json_output: bool = False) -> int:
     """Score the cross-linker relate surface: link-discovery precision/recall/F1."""
     if not labels_path.is_file():
         print(f"kosha: labels file not found: {labels_path}", file=sys.stderr)
         return 2
     relator = LexicalRelator()
     report = evaluate_relate(load_relate_cases(labels_path), relator)
+    if json_output:
+        print(cli_json.dumps(cli_json.eval_relate_json(labels_path, relator.name, report)))
+        return 0
     print(f"Relate eval over {labels_path} ({report.case_count} cases, relator={relator.name})")
     print(
         f"precision: {report.precision:.3f}  recall: {report.recall:.3f}  f1: {report.f1:.3f} "
@@ -711,7 +819,7 @@ def _run_eval_relate(labels_path: Path) -> int:
     return 0
 
 
-def _run_eval_contradict(labels_path: Path) -> int:
+def _run_eval_contradict(labels_path: Path, json_output: bool = False) -> int:
     """Score the contradiction detector: conflict-detection precision/recall/F1."""
     if not labels_path.is_file():
         print(f"kosha: labels file not found: {labels_path}", file=sys.stderr)
@@ -719,12 +827,17 @@ def _run_eval_contradict(labels_path: Path) -> int:
     judge = LexicalContradictionJudge()
     cases = load_contradict_cases(labels_path)
     report = evaluate_contradict(cases, judge)
+    by_regime = evaluate_contradict_by_regime(cases, judge)
+    if json_output:
+        payload = cli_json.eval_contradict_json(labels_path, judge.name, report, by_regime)
+        print(cli_json.dumps(payload))
+        return 0
     print(f"Contradict eval over {labels_path} ({report.case_count} cases, judge={judge.name})")
     print(
         f"precision: {report.precision:.3f}  recall: {report.recall:.3f}  "
         f"f1: {report.f1:.3f}  accuracy: {report.accuracy:.3f}"
     )
-    for regime, regime_report in evaluate_contradict_by_regime(cases, judge).items():
+    for regime, regime_report in by_regime.items():
         print(
             f"  regime={regime:<12} precision: {regime_report.precision:.3f}  "
             f"recall: {regime_report.recall:.3f}  f1: {regime_report.f1:.3f}  "
