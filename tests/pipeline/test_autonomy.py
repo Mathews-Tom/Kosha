@@ -5,8 +5,10 @@ from __future__ import annotations
 import pytest
 
 from kosha.approve import (
+    AutonomyEvalCase,
     AutonomyThresholds,
     Lane,
+    evaluate_autonomy_confidence,
     route_change,
     route_plan,
 )
@@ -131,3 +133,48 @@ def test_escalation_flag_forces_plan_to_block() -> None:
     assert routing.requires_approval is True
     assert routing.flagged == 1
     assert "escalated conflict(s) require approval" in render_routing(routing)
+
+
+def test_autonomy_eval_reports_false_auto_apply_and_review_load() -> None:
+    cases = [
+        AutonomyEvalCase(build_plan([_change("safe.md")]), safe_to_auto_apply=True),
+        AutonomyEvalCase(build_plan([_change("unsafe.md")]), safe_to_auto_apply=False),
+        AutonomyEvalCase(
+            build_plan([_change("skim.md", confidence=0.5)]),
+            safe_to_auto_apply=False,
+        ),
+        AutonomyEvalCase(
+            build_plan([_change("block.md", impact=Impact.HIGH)]),
+            safe_to_auto_apply=False,
+        ),
+    ]
+
+    report = evaluate_autonomy_confidence(cases)
+
+    assert report.case_count == 4
+    assert report.auto_apply_count == 2
+    assert report.false_auto_apply_count == 1
+    assert report.false_auto_apply_rate == 0.5
+    assert report.review_count == 2
+    assert report.route_count == 4
+    assert report.review_load == 0.5
+
+
+def test_autonomy_eval_counts_flagged_plan_changes_as_review_load() -> None:
+    from kosha.plan import Flag
+
+    report = evaluate_autonomy_confidence(
+        [
+            AutonomyEvalCase(
+                build_plan(
+                    [_change("auto-but-flagged.md")],
+                    [Flag(concept_id="policies/returns", summary="conflict")],
+                ),
+                safe_to_auto_apply=False,
+            )
+        ]
+    )
+
+    assert report.review_count == 1
+    assert report.route_count == 1
+    assert report.review_load == 1.0
