@@ -98,6 +98,59 @@ Gate the five MVP success criteria on the golden corpus. **Exit code `0` iff eve
 uv run kosha bench acceptance --report ACCEPTANCE_REPORT.md
 ```
 
+### `kosha bench realworld` — Gate-0 v2 re-run
+
+```text
+kosha bench realworld [--corpus PATH] [--queries PATH] [--maintenance PATH]
+                       [--guidance PATH] [--ingests N] [--seed-concepts N]
+                       [--max-queries N] [--fidelity-targeter lexical|generation]
+                       [--report PATH]
+```
+
+Run the real-model, held-out benchmark (DEVELOPMENT_PLAN M3 Gate-0 v2): a three-way retrieval comparison, maintenance-routing accuracy, a drift probe across `--ingests` sequential ingests, and the knowledge-integrity safety comparison the reframed kill criterion gates on — the loop's contradiction handling vs a safety-instructed prompt-only baseline. Prints `Gate 0 verdict: GO` or `NO-GO`; with `--report` it also writes the full `ACCEPTANCE_REPORT.md`-shaped document.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--corpus` | `bundles/pydoc-stdlib` | External corpus bundle. |
+| `--queries` | `evals/realworld/queries.jsonl` | Held-out query set. |
+| `--maintenance` | `evals/realworld/maintenance.jsonl` | Held-out dedup/novel/contradiction cases. |
+| `--guidance` | `consumer/AGENTS.fragment.md` | AGENTS fragment given to the prompt-only baseline. |
+| `--ingests` | `50` | Sequential ingests in the drift probe; `50` is the minimum for a valid Gate-0 verdict. |
+| `--seed-concepts` | `150` | Corpus concepts seeded into the drift bundle. |
+| `--max-queries` | all | Cap the held-out queries evaluated — use this to keep a smoke run fast. |
+| `--fidelity-targeter` | `lexical` | Claim targeter used by the edit-drift fidelity probe. |
+| `--report` | none | Write the full report to this path. |
+
+Embedding and generation providers come from the environment (`resolve_embedding_provider`/`resolve_generation_provider`); with none configured, both fall back to the deterministic local providers.
+
+**Offline smoke** — deterministic, no network call, safe to run in CI on every change:
+
+```bash
+uv run kosha bench realworld --report ACCEPTANCE_REPORT.md --ingests 5 --max-queries 6
+```
+
+**Real-provider Gate-0 v2 re-run** — only a valid recorded verdict once real providers are configured (e.g. `OPENAI_BASE_URL`/`OPENAI_API_KEY` for an OpenAI-compatible endpoint):
+
+```bash
+uv run kosha bench realworld --report ACCEPTANCE_REPORT.md --ingests 50
+```
+
+Running the `--ingests 50` command *without* configuring real providers still exits `0` (it is a runnable smoke of the same code path) but prints a warning that the result is **not** a valid Gate-0 verdict, so a local-provider run can't be mistaken for the real thing. After a genuine real-provider run, turn the resulting report into the tracked [`docs/gate0-status.md`](gate0-status.md) update with `render_gate_status_summary`/`render_gate_status_row` (`kosha.bench.realworld.status`) rather than hand-editing the verdict prose.
+
+---
+
+## `kosha calibrate`
+
+```text
+kosha calibrate [--labels PATH] [--margin FLOAT]
+```
+
+Fit every lexical decision threshold to the configured embedding on the seed labels: the dedup two-threshold band (`--labels`, default `labels/dedup_seed.jsonl`), the adjudicator same/different cutoff (same pairs), the merge claim-targeter cutoff (`labels/merge_seed.jsonl`), and the relator cutoff (`labels/relate_seed.jsonl`). Refuses to run against a held-out `evals/realworld/*` fixture instead of a tracked seed label file.
+
+```bash
+uv run kosha calibrate --labels labels/dedup_seed.jsonl
+```
+
 ---
 
 ## `kosha eval`
