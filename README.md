@@ -127,7 +127,7 @@ From a source checkout you can also drive the bundled Northwind reference corpus
 ```bash
 uv run kosha validate bundles/northwind          # OK: ... is OKF-conformant
 uv run kosha bench --bundle bundles/northwind    # hybrid vs RAG vs long-context
-uv run kosha bench acceptance                    # gate the 4 MVP success criteria
+uv run kosha bench acceptance                    # gate the 5 MVP success criteria
 uv run kosha bench realworld --max-queries 12    # real-model benchmark (needs an endpoint)
 ```
 
@@ -169,7 +169,7 @@ Without MCP, the same protocol ships as an `AGENTS.md` fragment ([`consumer/AGEN
 | `kosha validate <bundle>` | OKF v0.1 conformance gate (exit ≠ 0 blocks merge) |
 | `kosha ingest <source> [--bundle] [--dry-run] [--yes] [--authority]` | Run the maintenance loop behind the approve gate |
 | `kosha bench [--bundle] [--report]` | Premise-validation retrieval benchmark (hybrid vs RAG vs long-context) |
-| `kosha bench acceptance [--bundle] [--report]` | Gate the four MVP success criteria (exit 0 iff all pass) |
+| `kosha bench acceptance [--bundle] [--report]` | Gate the five MVP success criteria (exit 0 iff all pass) |
 | `kosha bench realworld [--corpus] [--ingests] [--report]` | Real-model benchmark: loop vs tuned RAG vs prompt-only baselines |
 | `kosha bench corpus [--out]` | Regenerate the external stdlib benchmark corpus |
 | `kosha eval extract\|dedup\|merge\|relate\|contradict` | Score one LLM surface against seed labels |

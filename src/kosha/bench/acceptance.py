@@ -27,10 +27,12 @@ noise floor — the same discipline as the premise report's KS2 signal.
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from kosha.bench.queries import BenchQuery
 from kosha.bench.report import LATENCY_MARGIN, LATENCY_NOISE_FLOOR_MS, _ratio
 from kosha.bench.runner import BenchReport, StrategyResult, run_benchmark
 from kosha.contradiction import (
@@ -56,7 +58,7 @@ from kosha.merge import (
     merge_update,
     write_concept,
 )
-from kosha.model import Bundle, Claim, Source, SourceKind
+from kosha.model import Bundle, Claim, Concept, Frontmatter, Source, SourceKind
 from kosha.providers.base import EmbeddingProvider, GenerationProvider
 from kosha.telemetry import TelemetrySink
 from kosha.validate import validate_bundle
@@ -155,6 +157,86 @@ def token_latency_criterion(bench: BenchReport) -> AcceptanceCriterion:
     )
 
 
+DEEP_LATENCY_DEPTHS = frozenset({4, 5})
+
+
+@dataclass(frozen=True)
+class DeepLatencyReport:
+    """KS2 latency retest on a deterministic depth 4-5 bundle."""
+
+    depth: int
+    bench: BenchReport
+
+
+def measure_deep_latency(
+    embedding_provider: EmbeddingProvider,
+    generation_provider: GenerationProvider,
+    *,
+    telemetry_sink: TelemetrySink | None = None,
+) -> DeepLatencyReport:
+    """Run the token/latency criterion on a depth-5 bundle fixture."""
+    bundle, queries = _deep_latency_fixture()
+    bench = run_benchmark(
+        bundle,
+        embedding_provider,
+        generation_provider,
+        queries,
+        telemetry_sink=telemetry_sink,
+    )
+    return DeepLatencyReport(depth=_max_depth(bundle.concepts), bench=bench)
+
+
+def deep_latency_criterion(report: DeepLatencyReport) -> AcceptanceCriterion:
+    criterion = token_latency_criterion(report.bench)
+    return AcceptanceCriterion(
+        id="C2-deep-latency",
+        name=f"KS2 latency holds on depth {report.depth} bundle",
+        passed=report.depth in DEEP_LATENCY_DEPTHS and criterion.passed,
+        target="hybrid latency within RAG margin on a depth 4-5 bundle",
+        evidence=f"depth {report.depth}; {criterion.evidence}",
+    )
+
+
+def _deep_latency_fixture() -> tuple[Bundle, tuple[BenchQuery, ...]]:
+    concepts: dict[str, Concept] = {}
+    topics = (
+        ("returns", "Gold members have 45 days to return unworn items."),
+        ("refunds", "Approved refunds post to the original card in five business days."),
+        ("shipping", "Expedited shipping arrives on the next business day."),
+        ("loyalty", "Platinum members receive free shipping and priority support."),
+        ("exchanges", "Eligible items may be exchanged instead of refunded."),
+        ("escalations", "Agents escalate severe complaints to a supervisor."),
+    )
+    for index, (slug, statement) in enumerate(topics):
+        concept_id = f"domains/retail/region-{index % 2}/policies/{slug}"
+        key = f"deepkey{index}"
+        body = f"{key} {statement}"
+        concepts[concept_id] = Concept(
+            concept_id=concept_id,
+            frontmatter=Frontmatter(
+                type="Policy",
+                title=slug.title(),
+                description=body,
+                tags=["deep-latency", slug, key],
+            ),
+            body=body,
+        )
+    queries = tuple(
+        BenchQuery(
+            id=f"deep-{slug}",
+            question=f"What does deepkey{index} say?",
+            required_concepts=(f"domains/retail/region-{index % 2}/policies/{slug}",),
+            answer_keywords=(f"deepkey{index}",),
+        )
+        for index, (slug, _statement) in enumerate(topics)
+    )
+    return Bundle(root_path="bench://deep-latency", concepts=concepts), queries
+
+
+def _max_depth(concept_ids: Iterable[str]) -> int:
+    return max((concept_id.count("/") + 1 for concept_id in concept_ids), default=0)
+
+
 def duplicate_rate_criterion(duplicates: DuplicateRateReport) -> AcceptanceCriterion:
     """Gate near-zero duplicates after re-ingesting an existing corpus (M6 contract).
 
@@ -163,7 +245,7 @@ def duplicate_rate_criterion(duplicates: DuplicateRateReport) -> AcceptanceCrite
     """
     passed = duplicates.duplicate_rate <= DUPLICATE_RATE_BAR
     return AcceptanceCriterion(
-        id="C2-duplicate-rate",
+        id="C3-duplicate-rate",
         name="Duplicate-rate ~= 0 after repeated ingests",
         passed=passed,
         target=f"duplicate-rate <= {DUPLICATE_RATE_BAR:.2f} on a re-ingest of the corpus",
@@ -173,6 +255,7 @@ def duplicate_rate_criterion(duplicates: DuplicateRateReport) -> AcceptanceCrite
             f"duplicate-rate {duplicates.duplicate_rate:.3f}."
         ),
     )
+
 
 @dataclass(frozen=True)
 class FidelityReport:
@@ -196,6 +279,7 @@ class FidelityReport:
             and self.conformant
             and self.latest_reflected
         )
+
 
 def measure_fidelity(
     work_dir: Path | None = None,
@@ -296,7 +380,7 @@ def _run_fidelity(root: Path, ingests: int, targeter: ClaimTargeter) -> Fidelity
 def fidelity_criterion(fidelity: FidelityReport) -> AcceptanceCriterion:
     """Gate edit-drift fidelity across >=20 sequential ingests (system_design §7.1)."""
     return AcceptanceCriterion(
-        id="C3-fidelity",
+        id="C4-fidelity",
         name=f"Fidelity preserved across >={FIDELITY_INGESTS} sequential ingests",
         passed=fidelity.ok,
         target=f"no edit-drift across >={FIDELITY_INGESTS} ingests",
@@ -411,7 +495,7 @@ def measure_contradiction_safety(
 def contradiction_criterion(safety: ContradictionSafetyReport) -> AcceptanceCriterion:
     """Gate that injected contradictions are resolved-or-escalated, never overwritten."""
     return AcceptanceCriterion(
-        id="C4-contradiction-safety",
+        id="C5-contradiction-safety",
         name="Contradictions resolved-or-escalated, 0 silent overwrites",
         passed=safety.ok,
         target="100% of injected contradictions resolved-or-escalated; 0 silent overwrites",
@@ -440,8 +524,12 @@ def run_acceptance(
     )
     fidelity = measure_fidelity()
     contradiction = measure_contradiction_safety()
+    deep_latency = measure_deep_latency(
+        embedding_provider, generation_provider, telemetry_sink=telemetry_sink
+    )
     criteria: list[AcceptanceCriterion] = [
         token_latency_criterion(bench),
+        deep_latency_criterion(deep_latency),
         duplicate_rate_criterion(duplicates),
         fidelity_criterion(fidelity),
         contradiction_criterion(contradiction),
@@ -525,11 +613,14 @@ __all__ = [
     "AcceptanceCriterion",
     "AcceptanceReport",
     "ContradictionSafetyReport",
+    "DeepLatencyReport",
     "FidelityReport",
     "contradiction_criterion",
+    "deep_latency_criterion",
     "duplicate_rate_criterion",
     "fidelity_criterion",
     "measure_contradiction_safety",
+    "measure_deep_latency",
     "measure_fidelity",
     "render_acceptance_report",
     "run_acceptance",
