@@ -240,7 +240,7 @@ def ingest(
     )
     result = IngestResult(plan, routing, decision=decision, reviewer=reviewer, audit=accum.audit)
     if decision is Decision.APPROVE and not plan.is_empty:
-        _commit(plan, bundle_root, asof, source, git_store, branch, reviewer, result)
+        _commit(plan, routing, bundle_root, asof, source, git_store, branch, reviewer, result)
     return result
 
 
@@ -398,6 +398,7 @@ def _log_change(
 
 def _commit(
     plan: ChangePlan,
+    routing: PlanRouting,
     bundle_root: Path,
     asof: datetime,
     source: Path,
@@ -413,7 +414,10 @@ def _commit(
     concurrent ingest against the same bundle fails loudly (IngestLockError)
     rather than racing this one's branch switch or file writes. When a
     reviewer identity was supplied and approved the plan, it is recorded as a
-    ``Reviewed-by`` trailer so the commit names who approved it.
+    ``Reviewed-by`` trailer so the commit names who approved it. Each change
+    line records its routed lane, impact, confidence, and contradiction state —
+    the durable audit detail the compliance export reads back out of git
+    history, since the plan/routing objects themselves are not persisted.
     """
     store = git_store or GitStore(bundle_root)
     with IngestLock(store.repo):
@@ -425,7 +429,7 @@ def _commit(
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(change.content, encoding="utf-8")
             written.append(path)
-        body = "\n".join(f"- {change.kind.value} {change.path}" for change in plan.changes)
+        body = "\n".join(_change_line(route.change, route.lane.label) for route in routing.routes)
         message = f"feat(kosha): ingest {source.name}\n\n{body}"
         if reviewer is not None:
             message = f"{message}\n\nReviewed-by: {reviewer}"
@@ -433,6 +437,23 @@ def _commit(
         result.backup_tag = store.tag_daily_backup(asof.date())
         result.committed = True
         result.branch = branch_name
+
+
+def _change_line(change: FileChange, lane: str) -> str:
+    """Render one ingest commit's per-file audit line, in a stable, parseable shape.
+
+    The compliance export (``kosha.audit.export``) parses this exact shape back
+    out of ``git log``, so the key order and ``key=value`` bracket format are a
+    durable contract, not just log formatting.
+    """
+    parts = [
+        f"lane={lane}",
+        f"impact={change.impact.value}",
+        f"confidence={change.confidence:.2f}",
+    ]
+    if change.contradiction is not ContradictionState.NONE:
+        parts.append(f"contradiction={change.contradiction.value}")
+    return f"- {change.kind.value} {change.path} [{' '.join(parts)}]"
 
 
 def _update_summary(result: UpdateResult) -> str:

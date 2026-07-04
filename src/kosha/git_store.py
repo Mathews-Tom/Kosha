@@ -22,7 +22,7 @@ from __future__ import annotations
 import os
 import subprocess
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from types import TracebackType
 
@@ -231,6 +231,33 @@ class GitStore:
     def commit_message(self, ref: str = "HEAD") -> str:
         """Return the full commit message of ``ref``."""
         return self._git("log", "-1", "--format=%B", ref).rstrip("\n")
+
+    def revisions(self, ref: str = "HEAD") -> list[str]:
+        """Return every commit SHA reachable from ``ref``, oldest first.
+
+        The chronological walk order the compliance export reads history in —
+        matching the oldest-first convention :mod:`kosha.merge.lineage` uses for
+        claim history, so a bundle's git and claim audit trails read the same way.
+        """
+        listing = self._git("log", "--reverse", "--format=%H", ref)
+        return [line for line in listing.splitlines() if line]
+
+    def commit_date(self, ref: str = "HEAD") -> datetime:
+        """Return ``ref``'s author date as a timezone-aware :class:`datetime`."""
+        return datetime.fromisoformat(self._git("log", "-1", "--format=%aI", ref))
+
+    def remote_url(self, name: str = "origin") -> str | None:
+        """Return the configured URL of remote ``name``, or ``None`` if unset.
+
+        Optional bundle metadata (system_design §6): a local-only bundle has no
+        remote configured, which is not an error worth raising for.
+        """
+        result = self._run("remote", "get-url", name, check=False)
+        return result.stdout.strip() or None if result.returncode == 0 else None
+
+    def show(self, ref: str, path: str) -> str:
+        """Return ``path``'s content as committed at ``ref``."""
+        return self._git("show", f"{ref}:{path}")
 
     def _ref_exists(self, ref: str) -> bool:
         return self._run("rev-parse", "--verify", "--quiet", ref, check=False).returncode == 0

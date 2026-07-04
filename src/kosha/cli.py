@@ -12,6 +12,8 @@ report.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
@@ -19,6 +21,7 @@ from pathlib import Path
 
 from kosha import __version__
 from kosha.approve import render_plan, render_routing
+from kosha.audit import build_report, require_export_access, to_json, to_markdown
 from kosha.bench import (
     assert_seed_labels_path,
     calibrate_adjudicator_threshold,
@@ -61,6 +64,7 @@ from kosha.eval import (
     load_relate_cases,
 )
 from kosha.link import LexicalRelator
+from kosha.mcp.service import AccessDeniedError, resolve_bundle_access, resolve_clearance
 from kosha.merge import LexicalClaimTargeter
 from kosha.okf import load_bundle
 from kosha.pipeline import ingest
@@ -315,6 +319,41 @@ def build_parser() -> argparse.ArgumentParser:
             "recorded as a Reviewed-by trailer on the commit."
         ),
     )
+    export_parser = subparsers.add_parser(
+        "export",
+        help="Export compliance-grade audit evidence for a bundle's git history.",
+    )
+    export_parser.add_argument(
+        "bundle",
+        type=Path,
+        help="Path to the OKF bundle directory (a Git repository).",
+    )
+    export_parser.add_argument(
+        "--format",
+        choices=("json", "markdown"),
+        default="json",
+        help="Export format (default: json).",
+    )
+    export_parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Write the export to this path instead of stdout.",
+    )
+    export_parser.add_argument(
+        "--ref",
+        type=str,
+        default="HEAD",
+        help="Git ref to walk for ingest history (default: HEAD).",
+    )
+    export_parser.add_argument(
+        "--include-source-text",
+        action="store_true",
+        help=(
+            "Include each changed file's committed content. Default: metadata "
+            "only, since source body text may be sensitive."
+        ),
+    )
     return parser
 
 
@@ -336,6 +375,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_eval(args)
     if args.command == "ingest":
         return _run_ingest(args)
+    if args.command == "export":
+        return _run_export(args)
     if args.command == "calibrate":
         return _run_calibrate(args)
     parser.print_help()
@@ -378,6 +419,30 @@ def _run_ingest(args: argparse.Namespace) -> int:
         )
     else:
         print("\nnot approved: nothing committed.")
+    return 0
+
+
+def _run_export(args: argparse.Namespace) -> int:
+    """Run ``kosha export``: reconstruct and print/write the compliance evidence."""
+    if not args.bundle.is_dir():
+        print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
+        return 2
+    try:
+        require_export_access(resolve_bundle_access(os.environ), resolve_clearance(os.environ))
+    except AccessDeniedError as exc:
+        print(f"kosha: access denied: {exc}", file=sys.stderr)
+        return 3
+    report = build_report(args.bundle, ref=args.ref, include_source_text=args.include_source_text)
+    rendered = (
+        to_markdown(report)
+        if args.format == "markdown"
+        else json.dumps(to_json(report), indent=2)
+    )
+    if args.out is not None:
+        args.out.write_text(rendered, encoding="utf-8")
+        print(f"Wrote compliance export to {args.out}")
+    else:
+        print(rendered)
     return 0
 
 
