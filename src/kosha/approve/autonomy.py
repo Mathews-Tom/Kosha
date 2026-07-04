@@ -155,6 +155,9 @@ def route_change(
     """Assign ``change`` to a review lane by confidence, impact, and contradiction."""
     if thresholds.force_block:
         return ChangeRouting(change, Lane.BLOCK, "bundle forces all changes to block")
+    if change.secret_detectors:
+        detectors = ", ".join(sorted(change.secret_detectors))
+        return ChangeRouting(change, Lane.BLOCK, f"secret-like content detected ({detectors})")
     if change.contradiction is ContradictionState.ESCALATED:
         return ChangeRouting(change, Lane.BLOCK, "escalated contradiction needs human judgment")
     if change.impact is Impact.HIGH:

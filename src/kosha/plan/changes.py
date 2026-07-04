@@ -59,3 +59,4 @@ class FileChange(BaseModel):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     impact: Impact = Impact.LOW
     contradiction: ContradictionState = ContradictionState.NONE
+    secret_detectors: frozenset[str] = Field(default_factory=frozenset)
