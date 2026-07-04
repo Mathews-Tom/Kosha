@@ -44,6 +44,7 @@ from kosha.contradiction import LexicalContradictionJudge
 from kosha.dedup import DEFAULT_THRESHOLDS, LexicalAdjudicator
 from kosha.eval import (
     evaluate_contradict,
+    evaluate_contradict_by_regime,
     evaluate_dedup,
     evaluate_duplicate_rate,
     evaluate_extractor,
@@ -608,12 +609,19 @@ def _run_eval_contradict(labels_path: Path) -> int:
         print(f"kosha: labels file not found: {labels_path}", file=sys.stderr)
         return 2
     judge = LexicalContradictionJudge()
-    report = evaluate_contradict(load_contradict_cases(labels_path), judge)
+    cases = load_contradict_cases(labels_path)
+    report = evaluate_contradict(cases, judge)
     print(f"Contradict eval over {labels_path} ({report.case_count} cases, judge={judge.name})")
     print(
         f"precision: {report.precision:.3f}  recall: {report.recall:.3f}  "
         f"f1: {report.f1:.3f}  accuracy: {report.accuracy:.3f}"
     )
+    for regime, regime_report in evaluate_contradict_by_regime(cases, judge).items():
+        print(
+            f"  regime={regime:<12} precision: {regime_report.precision:.3f}  "
+            f"recall: {regime_report.recall:.3f}  f1: {regime_report.f1:.3f}  "
+            f"({regime_report.case_count} cases)"
+        )
     return 0
 
 

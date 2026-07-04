@@ -165,3 +165,26 @@ def test_contradiction_prompt_carries_both_claims_and_the_instruction() -> None:
     assert "conflict" in query.lower()
     assert "PRIOR_TEXT" in context
     assert "NEW_TEXT" in context
+
+
+def test_contradiction_prompt_defaults_to_flagging_on_uncertainty() -> None:
+    # Gate-0 v2 (M3): the strict "materially contradicts" framing let the judge
+    # answer compatible on subtle regimes; the safety-preserving framing must
+    # default to flagging a conflict when unsure, mirroring the safety-instructed
+    # baseline it is measured against.
+    query, _ = build_contradiction_prompt("PRIOR_TEXT", "NEW_TEXT")
+    lowered = query.lower()
+    assert "when unsure, flag conflict" in lowered
+    assert "materially contradicts" not in lowered
+
+
+def test_contradiction_prompt_names_the_subtle_conflict_regimes() -> None:
+    # The prompt must name the regime shapes a strict framing missed (S2 report):
+    # scope (partial), unit/time window (unit), state change (temporal), and
+    # reworded meaning (adversarial paraphrase) — not just numeric/negation.
+    query, _ = build_contradiction_prompt("PRIOR_TEXT", "NEW_TEXT")
+    lowered = query.lower()
+    assert "narrower or broader scope" in lowered
+    assert "unit or time window" in lowered
+    assert "state that has since changed" in lowered
+    assert "reworded claim that shifts the meaning" in lowered
