@@ -83,7 +83,19 @@ This is how one concept carries history without forking files — see [authoring
 
 Access is enforced at the **bundle level** — the bundle is granted or denied as a whole; there is no concept-level ACL (a deliberate v1 choice that keeps the "just files" portability story; see [system design §6](system_design.md)). The `KoshaKnowledgeService` accepts a required `bundle_access` label and a caller `clearance` set; when `bundle_access` is set, only a caller whose clearance contains it is served, otherwise every read raises an access error.
 
-The `kosha-mcp` entry point serves the bundle openly (no access label). To enforce bundle-level access, embed the service in your own server process:
+The `kosha-mcp` entry point reads both from the environment:
+
+```bash
+KOSHA_BUNDLE=bundles/northwind \
+KOSHA_BUNDLE_ACCESS=confidential \
+KOSHA_CLEARANCE=confidential,ops \
+uv run kosha-mcp
+```
+
+- `KOSHA_BUNDLE_ACCESS` — the label this bundle requires. Unset (the default) serves the bundle openly, matching prior behavior.
+- `KOSHA_CLEARANCE` — comma-separated labels the served caller holds. Setting `KOSHA_BUNDLE_ACCESS` without `KOSHA_CLEARANCE` denies every caller rather than silently serving the bundle open — clearance must be granted explicitly.
+
+To enforce access with logic more complex than a static label set (e.g. per-request identity), embed the service in your own server process instead:
 
 ```python
 from pathlib import Path

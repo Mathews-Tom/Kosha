@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -96,8 +97,26 @@ def build_server(
     return server
 
 
+def resolve_clearance(env: Mapping[str, str]) -> frozenset[str]:
+    """Parse the caller's clearance labels from ``KOSHA_CLEARANCE`` (comma-separated)."""
+    raw = env.get("KOSHA_CLEARANCE", "")
+    return frozenset(item.strip() for item in raw.split(",") if item.strip())
+
+
+def resolve_bundle_access(env: Mapping[str, str]) -> str | None:
+    """Parse the bundle's required access label from ``KOSHA_BUNDLE_ACCESS``."""
+    return env.get("KOSHA_BUNDLE_ACCESS", "").strip() or None
+
+
 def main() -> None:
-    """Run the stdio MCP server over a bundle given by argv or ``KOSHA_BUNDLE``."""
+    """Run the stdio MCP server over a bundle given by argv or ``KOSHA_BUNDLE``.
+
+    Bundle-level access is opt-in: set ``KOSHA_BUNDLE_ACCESS`` to the label the
+    bundle requires and ``KOSHA_CLEARANCE`` to the comma-separated labels the
+    served caller holds. Leaving both unset serves the bundle openly, matching
+    prior behavior. Setting only ``KOSHA_BUNDLE_ACCESS`` denies every caller
+    (clearance defaults to empty) rather than silently serving the bundle open.
+    """
     from kosha.index.embedding import EmbeddingIndex
     from kosha.okf.load import load_bundle
     from kosha.providers import resolve_embedding_provider
@@ -107,4 +126,10 @@ def main() -> None:
         raise SystemExit("usage: kosha-mcp <bundle-path>  (or set KOSHA_BUNDLE)")
     bundle = load_bundle(Path(arg))
     index = EmbeddingIndex.build(bundle, resolve_embedding_provider())
-    build_server(KoshaKnowledgeService(bundle, index)).run()
+    service = KoshaKnowledgeService(
+        bundle,
+        index,
+        bundle_access=resolve_bundle_access(os.environ),
+        clearance=resolve_clearance(os.environ),
+    )
+    build_server(service).run()
