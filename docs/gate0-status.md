@@ -2,6 +2,8 @@
 
 Kosha has two separate evidence tracks. The deterministic local-provider gates verify reproducible mechanics on the bundled reference corpus. The real-model Gate-0 runs test whether the maintenance loop beats a strong prompt-only baseline on decision quality.
 
+> Maintenance note (M3): the "Current public verdict" sentence and each evidence-table row below must be generated, not hand-authored. After a Gate-0 run, call `render_gate_status_summary`/`render_gate_status_row` from `kosha.bench.realworld.status` on the resulting `RealworldReport` and paste the output here verbatim — `tests/bench/test_realworld_status.py::test_gate0_status_doc_matches_the_current_recorded_verdict` fails the build if this file drifts from what the renderer would produce for the currently recorded verdict.
+
 ## Current public verdict
 
 **Real-model Gate-0 verdict: NO-GO.** Kosha ships as an OSS governance skill. M14+ product expansion remains halted unless a later pre-registered real-model Gate-0 run records a GO verdict.
