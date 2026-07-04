@@ -19,9 +19,11 @@ from kosha.bench.acceptance import (
     ContradictionSafetyReport,
     FidelityReport,
     contradiction_criterion,
+    deep_latency_criterion,
     duplicate_rate_criterion,
     fidelity_criterion,
     measure_contradiction_safety,
+    measure_deep_latency,
     measure_fidelity,
     render_acceptance_report,
     run_acceptance,
@@ -150,6 +152,19 @@ def test_latency_criterion_uses_wallclock_above_the_noise_floor() -> None:
     assert token_latency_criterion(within).passed
 
 
+def test_deep_latency_criterion_measures_depth_five_bundle() -> None:
+    report = measure_deep_latency(
+        LexicalEmbeddingProvider(),
+        ExtractiveGenerationProvider(),
+    )
+    criterion = deep_latency_criterion(report)
+
+    assert report.depth == 5
+    assert criterion.id == "C2-deep-latency"
+    assert criterion.passed
+    assert "depth 5" in criterion.evidence
+
+
 def test_report_passes_iff_every_criterion_passes() -> None:
     ok = AcceptanceCriterion("X", "ok", passed=True, target="t", evidence="e")
     bad = AcceptanceCriterion("Y", "bad", passed=False, target="t", evidence="e")
@@ -273,7 +288,7 @@ def test_fidelity_criterion_fails_on_any_drift() -> None:
     assert not fidelity_criterion(drifted).passed
 
 
-def test_run_acceptance_gates_all_four_criteria() -> None:
+def test_run_acceptance_gates_all_five_criteria() -> None:
     bundle = load_bundle(NORTHWIND)
     report = run_acceptance(
         bundle,
@@ -284,9 +299,10 @@ def test_run_acceptance_gates_all_four_criteria() -> None:
     ids = [c.id for c in report.criteria]
     assert ids == [
         "C1-token-latency",
-        "C2-duplicate-rate",
-        "C3-fidelity",
-        "C4-contradiction-safety",
+        "C2-deep-latency",
+        "C3-duplicate-rate",
+        "C4-fidelity",
+        "C5-contradiction-safety",
     ]
     assert report.passed
 
