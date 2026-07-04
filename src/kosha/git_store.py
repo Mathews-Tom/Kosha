@@ -213,6 +213,58 @@ class GitStore:
         )
         return self.current_sha()
 
+    def commit_staged(self, message: str) -> str:
+        """Commit whatever is already staged (``git add``ed) with ``message``.
+
+        Used by recovery operations that stage a whole-tree change themselves
+        (:meth:`restore_tree`) rather than an explicit path list, so :meth:`commit`'s
+        "no paths" refusal does not apply.
+        """
+        self._git(
+            "-c",
+            f"user.name={self._author_name}",
+            "-c",
+            f"user.email={self._author_email}",
+            "commit",
+            "-m",
+            message,
+        )
+        return self.current_sha()
+
+    def diff_name_status(self, ref_a: str, ref_b: str) -> list[tuple[str, str]]:
+        """Return ``(status, path)`` pairs for the tree changes from ``ref_a`` to ``ref_b``.
+
+        ``status`` is git's single-letter code (``A``dded, ``M``odified,
+        ``D``eleted); a rename/copy score suffix (e.g. ``R100``) is reduced to
+        its leading letter since recovery only needs the coarse kind of
+        change, not similarity percentage.
+        """
+        output = self._git("diff", "--name-status", ref_a, ref_b)
+        pairs: list[tuple[str, str]] = []
+        for line in output.splitlines():
+            if not line:
+                continue
+            status, _, path = line.partition("\t")
+            pairs.append((status[0], path))
+        return pairs
+
+    def restore_tree(self, ref: str) -> None:
+        """Stage the working tree to exactly match ``ref``'s tree; does not commit.
+
+        Deletes tracked paths absent from ``ref`` and restores/overwrites the
+        paths present in it. Callers are expected to have already verified
+        ``ref`` exists and to commit the staged result themselves
+        (:meth:`commit_staged`) so the caller's commit message can describe the
+        recovery action.
+        """
+        current = set(self.tracked_files())
+        target = set(self.tracked_files(ref))
+        to_remove = sorted(current - target)
+        if to_remove:
+            self._git("rm", "-q", "--", *to_remove)
+        self._git("checkout", ref, "--", ".")
+        self._git("add", "-A")
+
     def tag_daily_backup(self, on: date | None = None, *, ref: str = "HEAD") -> str:
         """Move (or create) the ``backup/<date>`` tag at ``ref``; return its name.
 
@@ -222,6 +274,21 @@ class GitStore:
         name = f"{_BACKUP_PREFIX}/{(on or date.today()).isoformat()}"
         self._git("tag", "-f", name, ref)
         return name
+
+    def create_tag(self, name: str, ref: str = "HEAD") -> str:
+        """Create a new tag ``name`` at ``ref``; return its name.
+
+        Unlike :meth:`tag_daily_backup`, this never force-moves an existing
+        tag — it fails loud (:class:`GitError`) instead, so a recovery-safety
+        or release tag can never be silently overwritten once created.
+        """
+        self._git("tag", name, ref)
+        return name
+
+    def tags_matching(self, prefix: str) -> list[str]:
+        """Return every tag name starting with ``prefix``, sorted."""
+        listing = self._git("tag", "--list", f"{prefix}*")
+        return sorted(line for line in listing.splitlines() if line)
 
     def tracked_files(self, ref: str = "HEAD") -> list[str]:
         """Return the repo-relative paths tracked at ``ref`` (sorted)."""

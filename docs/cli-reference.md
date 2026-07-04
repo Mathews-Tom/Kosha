@@ -190,6 +190,43 @@ The same suites run under pytest via `uv run pytest evals -q`.
 
 ---
 
+## `kosha recover`
+
+```text
+kosha recover backups <bundle> [--json]
+kosha recover restore <bundle> --tag TAG [--apply] [--branch NAME] [--audit-log PATH] [--json]
+kosha recover reindex <bundle> [--apply] [--branch NAME] [--audit-log PATH] [--json]
+```
+
+Operator recovery over the existing safety substrates: `backups` lists every `backup/<date>` tag `ingest` leaves behind; `restore` brings the bundle back to a backup tag's recorded state; `reindex` regenerates any `index.md` files that drifted from the bundle's actual concepts. All three take a bundle that is itself a Git repository.
+
+**Safety contract.** `restore` and `reindex` show the exact refs/files an action would touch (`describe_*`) without writing anything by default; only `--apply` mutates. Every mutation writes on its own branch — never `main` directly — and takes a fresh, uniquely-timestamped `recovery-safety/<timestamp>` tag *before* touching anything, so the pre-recovery state is always one tag away, never silently lost. `restore` additionally re-verifies the target `--tag` exists immediately before mutating (verify-then-act, not trust-then-act).
+
+| Flag | Default | Description |
+|---|---|---|
+| `bundle` | — | Path to the OKF bundle directory (a Git repository). |
+| `--tag` | — | (`restore` only, required) Backup tag to restore to, e.g. `backup/2026-07-01`. |
+| `--apply` | off | Actually perform the mutation. Default is dry-run: show the plan only. |
+| `--branch` | auto-named | Branch to commit on. |
+| `--audit-log` | none | Append the `RecoveryRecord` audit record to this JSONL file. |
+| `--json` | off | Print the plan/record as structured JSON instead of text. |
+
+```bash
+# See what backup tags exist
+uv run kosha recover backups bundles/northwind
+
+# Preview a restore — shows exact files/refs, writes nothing
+uv run kosha recover restore bundles/northwind --tag backup/2026-07-01
+
+# Apply it, with a durable audit trail
+uv run kosha recover restore bundles/northwind --tag backup/2026-07-01 --apply --audit-log recovery-audit.jsonl
+
+# Fix drifted index.md files after a hand-edit
+uv run kosha recover reindex bundles/northwind --apply
+```
+
+---
+
 ## `kosha-mcp`
 
 ```text
@@ -213,3 +250,4 @@ KOSHA_BUNDLE=bundles/northwind uv run kosha-mcp
 | `1` | `bench acceptance` — at least one criterion failed |
 | `2` | `eval` invoked with no surface subcommand |
 | non-zero | `validate` — bundle has error-severity findings |
+| `2` | `recover` — unknown backup tag, not a bundle directory, or not a Git repository |

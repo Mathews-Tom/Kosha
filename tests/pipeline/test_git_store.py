@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -75,3 +76,44 @@ def test_failed_git_invocation_raises(tmp_path: Path) -> None:
     store, _ = _seeded_repo(tmp_path)
     with pytest.raises(GitError):
         store.switch("no-such-branch")
+
+
+def test_tags_matching_filters_by_prefix(tmp_path: Path) -> None:
+    store, _ = _seeded_repo(tmp_path)
+    store.tag_daily_backup(date(2026, 6, 28))
+    store.tag_daily_backup(date(2026, 6, 29))
+    subprocess.run(["git", "-C", str(tmp_path), "tag", "release/v1"], check=True)
+    assert store.tags_matching("backup/") == ["backup/2026-06-28", "backup/2026-06-29"]
+    assert store.tags_matching("release/") == ["release/v1"]
+
+
+def test_diff_name_status_reports_added_modified_and_deleted(tmp_path: Path) -> None:
+    store, _ = _seeded_repo(tmp_path)
+    tag = store.tag_daily_backup(date(2026, 6, 28))  # snapshot: README.md only
+
+    (tmp_path / "README.md").write_text("changed\n", encoding="utf-8")
+    (tmp_path / "new.md").write_text("new\n", encoding="utf-8")
+    store.commit(["README.md", "new.md"], "feat: change and add")
+
+    # Restoring HEAD -> tag would modify README.md and delete new.md.
+    status_by_path = {path: status for status, path in store.diff_name_status("HEAD", tag)}
+    assert status_by_path["README.md"] == "M"
+    assert status_by_path["new.md"] == "D"
+
+
+def test_restore_tree_and_commit_staged_reverts_to_the_tagged_tree(tmp_path: Path) -> None:
+    store, _ = _seeded_repo(tmp_path)
+    tag = store.tag_daily_backup(date(2026, 6, 28))
+
+    (tmp_path / "README.md").write_text("changed\n", encoding="utf-8")
+    (tmp_path / "new.md").write_text("new\n", encoding="utf-8")
+    store.commit(["README.md", "new.md"], "feat: change and add")
+
+    store.create_branch("recovery/restore-test")
+    store.restore_tree(tag)
+    sha = store.commit_staged("chore(recovery): restore from backup/2026-06-28")
+
+    assert sha == store.current_sha("HEAD")
+    assert store.show("HEAD", "README.md") == "seed"  # _git() strips trailing whitespace
+    assert "new.md" not in store.tracked_files("HEAD")
+    assert store.tracked_files("HEAD") == store.tracked_files(tag)
