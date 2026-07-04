@@ -20,7 +20,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from kosha import __version__, cli_json
-from kosha.approve import render_plan, render_routing
+from kosha.approve import (
+    PlanRouting,
+    Reader,
+    normalize_reviewer,
+    render_plan,
+    render_routing,
+    request_item_decisions,
+)
 from kosha.audit import build_report, require_export_access, to_json, to_markdown
 from kosha.bench import (
     assert_seed_labels_path,
@@ -67,7 +74,8 @@ from kosha.link import LexicalRelator
 from kosha.mcp.service import AccessDeniedError, resolve_bundle_access, resolve_clearance
 from kosha.merge import LexicalClaimTargeter
 from kosha.okf import load_bundle
-from kosha.pipeline import ingest
+from kosha.pipeline import commit_reviewed_plan, ingest
+from kosha.plan import build_plan
 from kosha.providers import resolve_embedding_provider, resolve_generation_provider
 from kosha.validate import validate_bundle
 
@@ -349,10 +357,20 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Build and print the plan without writing or committing.",
     )
-    ingest_parser.add_argument(
+    approval_group = ingest_parser.add_mutually_exclusive_group()
+    approval_group.add_argument(
         "--yes",
         action="store_true",
-        help="Approve the plan non-interactively (explicit human approval).",
+        help="Approve the whole plan non-interactively (explicit human approval).",
+    )
+    approval_group.add_argument(
+        "--review",
+        action="store_true",
+        help=(
+            "Approve or reject each plan item individually instead of one "
+            "blanket yes/no; an escalated conflict must be acknowledged before "
+            "any change commits."
+        ),
     )
     ingest_parser.add_argument(
         "--authority",
@@ -446,6 +464,8 @@ def _run_ingest(args: argparse.Namespace) -> int:
     if not args.bundle.is_dir():
         print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
         return 2
+    if args.review and not args.dry_run:
+        return _run_ingest_review(args)
     reader = input if sys.stdin.isatty() and not args.yes else None
     try:
         result = ingest(
@@ -471,6 +491,62 @@ def _run_ingest(args: argparse.Namespace) -> int:
         print("\ndry run: no changes written.")
         return 0
     if result.committed and result.commit_sha is not None:
+        print(
+            f"\ncommitted {result.commit_sha[:8]} on {result.branch} "
+            f"(backup {result.backup_tag})."
+        )
+    else:
+        print("\nnot approved: nothing committed.")
+    return 0
+
+
+def _run_ingest_review(args: argparse.Namespace) -> int:
+    """Run ``kosha ingest --review``: approve or reject each plan item individually."""
+    try:
+        reviewer = normalize_reviewer(args.reviewer)
+    except ValueError as exc:
+        print(f"kosha: invalid --reviewer: {exc}", file=sys.stderr)
+        return 2
+    asof = datetime.now(UTC)
+    dry_result = ingest(
+        args.source, args.bundle, asof=asof, source_authority=args.authority, dry_run=True
+    )
+    if dry_result.plan.is_empty:
+        if args.json:
+            print(cli_json.dumps(cli_json.ingest_json(dry_result, dry_run=False)))
+        else:
+            print(render_plan(dry_result.plan))
+        return 0
+    reader: Reader = input if sys.stdin.isatty() else (lambda _prompt: "")
+    printer = (lambda _line: None) if args.json else print
+    review = request_item_decisions(dry_result.plan, dry_result.routing, reader, printer=printer)
+    approved = review.approved_paths()
+    filtered_plan = build_plan([c for c in dry_result.plan.changes if c.path in approved])
+    filtered_routing = PlanRouting(
+        routes=tuple(r for r in dry_result.routing.routes if r.change.path in approved)
+    )
+    result = commit_reviewed_plan(
+        filtered_plan,
+        filtered_routing,
+        args.bundle,
+        asof=asof,
+        source=args.source,
+        reviewer=reviewer,
+    )
+    if args.json:
+        payload = cli_json.ingest_json(result, dry_run=False)
+        payload["review"] = {
+            path: decision.value for path, decision in review.change_decisions.items()
+        }
+        payload["flags_acknowledged"] = review.flags_acknowledged
+        print(cli_json.dumps(payload))
+        return 0
+    print(render_plan(filtered_plan))
+    print()
+    print(render_routing(filtered_routing))
+    if not review.flags_acknowledged:
+        print("\nnot approved: an escalated conflict was not acknowledged; nothing committed.")
+    elif result.committed and result.commit_sha is not None:
         print(
             f"\ncommitted {result.commit_sha[:8]} on {result.branch} "
             f"(backup {result.backup_tag})."

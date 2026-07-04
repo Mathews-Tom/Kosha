@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from kosha.approve import Decision, route_plan
+from kosha.approve import Decision, PlanRouting, route_plan
 from kosha.contradiction.detect import LexicalContradictionJudge
 from kosha.extract import ConceptDraft
 from kosha.git_store import GitStore
@@ -15,7 +15,7 @@ from kosha.merge.claims import current_claims
 from kosha.merge.create import create_concept
 from kosha.merge.update import LexicalClaimTargeter
 from kosha.model import ClaimStatus, Concept, Frontmatter, Source, SourceKind
-from kosha.pipeline import decide_plan, hydrate_claims, ingest, new_concept_id
+from kosha.pipeline import commit_reviewed_plan, decide_plan, hydrate_claims, ingest, new_concept_id
 from kosha.pipeline.writer import apply_update
 from kosha.plan import ChangeKind, ContradictionState, FileChange, Flag, build_plan
 from kosha.telemetry import InMemoryTelemetrySink
@@ -365,3 +365,91 @@ def test_ingest_rejects_a_reviewer_identity_with_an_embedded_newline(tmp_path: P
             reviewer="Jane Doe\nReviewed-by: Forged Identity",
         )
     assert not store.branch_exists("ingest/forged")
+
+
+def test_commit_reviewed_plan_writes_only_the_approved_changes(tmp_path: Path) -> None:
+    bundle, store, main_sha = _seed_bundle(tmp_path)
+    source = _policy_update_source(tmp_path)
+    dry = ingest(
+        source,
+        bundle,
+        asof=_ASOF,
+        source_authority=10,
+        dry_run=True,
+        git_store=store,
+    )
+    approved_path = "policies/returns.md"
+    assert any(c.path == approved_path for c in dry.plan.changes)
+    assert len(dry.plan.changes) > 1  # index/log regen also proposed
+    filtered_plan = build_plan([c for c in dry.plan.changes if c.path == approved_path])
+    filtered_routing = PlanRouting(
+        routes=tuple(r for r in dry.routing.routes if r.change.path == approved_path)
+    )
+
+    result = commit_reviewed_plan(
+        filtered_plan,
+        filtered_routing,
+        bundle,
+        asof=_ASOF,
+        source=source,
+        git_store=store,
+        branch="ingest/item-review",
+    )
+
+    assert result.committed is True
+    assert result.decision is Decision.APPROVE
+    tracked = store.tracked_files()
+    assert approved_path in tracked
+    # Rejected items (index/log regen) never reached the working tree.
+    other_paths = {c.path for c in dry.plan.changes if c.path != approved_path}
+    committed_message = store.commit_message()
+    for other in other_paths:
+        assert other not in committed_message
+    assert store.current_sha("main") == main_sha
+    assert store.tag_exists("backup/2026-06-28")
+
+
+def test_commit_reviewed_plan_with_nothing_approved_commits_nothing(tmp_path: Path) -> None:
+    bundle, store, main_sha = _seed_bundle(tmp_path)
+    empty_plan = build_plan([])
+    empty_routing = PlanRouting(routes=())
+    result = commit_reviewed_plan(
+        empty_plan,
+        empty_routing,
+        bundle,
+        asof=_ASOF,
+        source=_policy_update_source(tmp_path / "second"),
+        git_store=store,
+        branch="ingest/nothing-approved",
+    )
+    assert result.committed is False
+    assert result.commit_sha is None
+    assert store.current_sha("main") == main_sha
+    assert not store.branch_exists("ingest/nothing-approved")
+
+
+def test_commit_reviewed_plan_records_the_reviewer_trailer(tmp_path: Path) -> None:
+    bundle, store, _ = _seed_bundle(tmp_path)
+    source = _policy_update_source(tmp_path)
+    dry = ingest(
+        source,
+        bundle,
+        asof=_ASOF,
+        source_authority=10,
+        dry_run=True,
+        git_store=store,
+    )
+    change = next(c for c in dry.plan.changes if c.path == "policies/returns.md")
+    route = next(r for r in dry.routing.routes if r.change.path == change.path)
+    result = commit_reviewed_plan(
+        build_plan([change]),
+        PlanRouting(routes=(route,)),
+        bundle,
+        asof=_ASOF,
+        source=source,
+        reviewer="Jane Doe <jane@example.com>",
+        git_store=store,
+        branch="ingest/item-review-reviewed",
+    )
+    assert result.reviewer == "Jane Doe <jane@example.com>"
+    assert "Reviewed-by: Jane Doe <jane@example.com>" in store.commit_message()

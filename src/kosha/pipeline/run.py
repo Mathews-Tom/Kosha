@@ -240,7 +240,7 @@ def ingest(
     )
     result = IngestResult(plan, routing, decision=decision, reviewer=reviewer, audit=accum.audit)
     if decision is Decision.APPROVE and not plan.is_empty:
-        _commit(plan, routing, bundle_root, asof, source, git_store, branch, reviewer, result)
+        commit_plan(plan, routing, bundle_root, asof, source, git_store, branch, reviewer, result)
     return result
 
 
@@ -396,7 +396,7 @@ def _log_change(
     return [FileChange(path=_LOG_NAME, kind=kind, content=content, summary="append change log")]
 
 
-def _commit(
+def commit_plan(
     plan: ChangePlan,
     routing: PlanRouting,
     bundle_root: Path,
@@ -407,7 +407,12 @@ def _commit(
     reviewer: str | None,
     result: IngestResult,
 ) -> None:
-    """Write the approved plan and commit it on an ingest branch with a backup tag.
+    """Write ``plan``'s changes and commit them on an ingest branch with a backup tag.
+
+    Public so the per-item review CLI flow can commit an already-decided plan
+    directly — one that may be a subset of a larger dry-run plan, filtered down
+    to the changes a reviewer approved one at a time instead of a single
+    blanket yes/no (:func:`commit_reviewed_plan`).
 
     The branch-switch/write/commit sequence mutates the repo's one shared
     working tree, so it runs under an exclusive per-repository lock: a second
@@ -437,6 +442,31 @@ def _commit(
         result.backup_tag = store.tag_daily_backup(asof.date())
         result.committed = True
         result.branch = branch_name
+
+
+def commit_reviewed_plan(
+    plan: ChangePlan,
+    routing: PlanRouting,
+    bundle_root: Path,
+    *,
+    asof: datetime,
+    source: Path,
+    reviewer: str | None = None,
+    git_store: GitStore | None = None,
+    branch: str | None = None,
+) -> IngestResult:
+    """Commit an already per-item-decided plan (the CLI ``--review`` flow).
+
+    ``plan``/``routing`` are typically a subset of a larger dry-run plan,
+    filtered down to only the changes a reviewer individually approved — an
+    empty ``plan`` (everything rejected) commits nothing and returns an
+    uncommitted result, the same default-safe outcome a blanket rejection
+    produces.
+    """
+    result = IngestResult(plan, routing, decision=Decision.APPROVE, reviewer=reviewer)
+    if not plan.is_empty:
+        commit_plan(plan, routing, bundle_root, asof, source, git_store, branch, reviewer, result)
+    return result
 
 
 def _change_line(change: FileChange, lane: str) -> str:
