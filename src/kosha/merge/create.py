@@ -50,7 +50,7 @@ def segment_statements(body: str) -> list[str]:
 
 
 def claims_from_draft(
-    draft: ConceptDraft, source: Source, asserted_at: datetime
+    draft: ConceptDraft, source: Source, asserted_at: datetime, *, reviewer: str | None = None
 ) -> list[Claim]:
     """Build the initial claim set for a draft, stamped with source provenance.
 
@@ -60,16 +60,23 @@ def claims_from_draft(
     citation = source_citation(source)
     statements = segment_statements(draft.body) or [draft.description]
     return [
-        make_claim(statement, source.source_id, asserted_at, citations=[citation])
+        make_claim(
+            statement, source.source_id, asserted_at, citations=[citation], reviewer=reviewer
+        )
         for statement in statements
     ]
 
 
 def create_concept(
-    draft: ConceptDraft, concept_id: str, source: Source, asserted_at: datetime
+    draft: ConceptDraft,
+    concept_id: str,
+    source: Source,
+    asserted_at: datetime,
+    *,
+    reviewer: str | None = None,
 ) -> Concept:
     """Mint a new :class:`Concept` from ``draft`` with claim-projected body."""
-    claims = claims_from_draft(draft, source, asserted_at)
+    claims = claims_from_draft(draft, source, asserted_at, reviewer=reviewer)
     frontmatter = Frontmatter(
         type=draft.type,
         title=draft.title,

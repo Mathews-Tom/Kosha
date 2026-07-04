@@ -79,6 +79,7 @@ def apply_update(
     authority: dict[str, int],
     targeter: ClaimTargeter,
     judge: ContradictionJudge,
+    reviewer: str | None = None,
 ) -> UpdateResult:
     """Merge ``draft`` into ``existing`` through the M7 + M9 claim layer."""
     concept = hydrate_claims(existing, asserted_at=asserted_at)
@@ -106,11 +107,14 @@ def apply_update(
                 source_id=source.source_id,
                 asserted_at=asserted_at,
                 citations=[citation],
+                reviewer=reviewer,
             )
             superseded = True
             continue
         # Additive or conflicting: M9 reconcile (temporal -> authority -> escalate).
-        new_claim = make_claim(statement, source.source_id, asserted_at, citations=[citation])
+        new_claim = make_claim(
+            statement, source.source_id, asserted_at, citations=[citation], reviewer=reviewer
+        )
         reconciliation = reconcile(
             claims, new_claim, authority=authority, judge=judge, asof=asserted_at
         )
