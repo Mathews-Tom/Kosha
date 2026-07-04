@@ -227,6 +227,28 @@ uv run kosha recover reindex bundles/northwind --apply
 
 ---
 
+## `kosha release`
+
+```text
+kosha release <bundle> --tag VERSION [--out PATH] [--json]
+```
+
+Tag the bundle's current committed state (`HEAD`) as an immutable release. Refuses (exit `1`) when the bundle has OKF conformance errors, or when `--tag`'s release already exists — releases never move once cut, unlike the ingest pipeline's force-moving daily `backup/<date>` tag. The tag is `release/<VERSION>`; with `--out`, a content-addressed archive (`.zip` or `.tar`) of that exact tree is also written, so exporting the same commit twice under different tag names produces byte-identical archives.
+
+| Flag | Default | Description |
+|---|---|---|
+| `bundle` | — | Path to the OKF bundle directory (a Git repository). |
+| `--tag` | — | Required. Release version, e.g. `v1` (tagged as `release/v1`). |
+| `--out` | none | Export a content-addressed archive (`.zip` or `.tar`) to this path. |
+| `--json` | off | Print the release record as structured JSON instead of text. |
+
+```bash
+uv run kosha release bundles/northwind --tag v1
+uv run kosha release bundles/northwind --tag v2 --out dist/northwind-v2.zip
+```
+
+---
+
 ## `kosha-mcp`
 
 ```text
@@ -251,3 +273,4 @@ KOSHA_BUNDLE=bundles/northwind uv run kosha-mcp
 | `2` | `eval` invoked with no surface subcommand |
 | non-zero | `validate` — bundle has error-severity findings |
 | `2` | `recover` — unknown backup tag, not a bundle directory, or not a Git repository |
+| `1` | `release` — bundle not conformant, or the release tag already exists |

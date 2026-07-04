@@ -87,6 +87,7 @@ from kosha.recovery import (
     describe_restore,
     list_backups,
 )
+from kosha.release import ReleaseError, create_release
 from kosha.validate import validate_bundle
 
 # Default golden corpus the benchmark runs against, and the seed label files.
@@ -524,6 +525,32 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the result as structured JSON instead of text.",
     )
+    release_parser = subparsers.add_parser(
+        "release",
+        help="Tag a validated bundle as an immutable, reproducible release.",
+    )
+    release_parser.add_argument(
+        "bundle",
+        type=Path,
+        help="Path to the OKF bundle directory (a Git repository).",
+    )
+    release_parser.add_argument(
+        "--tag",
+        type=str,
+        required=True,
+        help="Release version, e.g. v1 (tagged as release/v1).",
+    )
+    release_parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="Export a content-addressed archive (.zip or .tar) to this path.",
+    )
+    release_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
     return parser
 
 
@@ -551,6 +578,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_calibrate(args)
     if args.command == "recover":
         return _run_recover(args)
+    if args.command == "release":
+        return _run_release(args)
     parser.print_help()
     return 0
 
@@ -1105,6 +1134,33 @@ def _run_recover_reindex(args: argparse.Namespace, store: GitStore) -> int:
     )
     return 0
 
+
+
+def _run_release(args: argparse.Namespace) -> int:
+    """Run ``kosha release``: validate, tag, and optionally export a bundle release."""
+    if not args.bundle.is_dir():
+        print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
+        return 2
+    store = GitStore(args.bundle)
+    if not store.is_repo():
+        print(f"kosha: not a git repository: {args.bundle}", file=sys.stderr)
+        return 2
+    export_path = args.out.resolve() if args.out is not None else None
+    try:
+        record = create_release(store, args.bundle, args.tag, export_path=export_path)
+    except ReleaseError as exc:
+        print(f"kosha: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(cli_json.dumps(cli_json.release_json(args.bundle, record)))
+        return 0
+    print(
+        f"Released {record.tag} -> {record.ref[:8]} "
+        f"({record.concept_count} concepts, {record.warning_count} warning(s))"
+    )
+    if record.export_path is not None:
+        print(f"Exported to {record.export_path}")
+    return 0
 
 
 def _max_depth(concept_ids: Iterable[str]) -> int:

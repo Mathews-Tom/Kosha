@@ -39,6 +39,7 @@ from kosha.eval import (
 )
 from kosha.pipeline import IngestResult
 from kosha.recovery import BackupTag, RecoveryRecord, ReindexPlan, RestorePlan
+from kosha.release import ReleaseRecord
 from kosha.validate import Report
 
 
@@ -390,4 +391,17 @@ def to_recovery_json(record: RecoveryRecord) -> dict[str, Any]:
         "commit_sha": record.commit_sha,
         "paths": list(record.paths),
         "source_ref": record.source_ref,
+    }
+
+
+def release_json(bundle: Path, record: ReleaseRecord) -> dict[str, Any]:
+    """Structured ``kosha release --json`` result."""
+    return {
+        "bundle": str(bundle),
+        "tag": record.tag,
+        "ref": record.ref,
+        "timestamp": record.timestamp,
+        "concept_count": record.concept_count,
+        "warning_count": record.warning_count,
+        "export_path": record.export_path,
     }
