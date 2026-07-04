@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from kosha.contradiction import LexicalContradictionJudge
-from kosha.eval import evaluate_contradict, load_contradict_cases
+from kosha.eval import evaluate_contradict, evaluate_contradict_by_regime, load_contradict_cases
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRADICT = ROOT / "labels" / "contradict_seed.jsonl"
@@ -44,3 +44,22 @@ def test_contradict_eval_is_deterministic() -> None:
     a = evaluate_contradict(load_contradict_cases(CONTRADICT), LexicalContradictionJudge())
     b = evaluate_contradict(load_contradict_cases(CONTRADICT), LexicalContradictionJudge())
     assert a == b
+
+
+def test_lexical_judge_leaves_headroom_on_every_subtle_regime() -> None:
+    # This is the headroom the S2 report diagnosed: the offline judge misses most
+    # of each subtle regime (no numeric/negation cue survives lexically for most
+    # cases), which is exactly the gap the safety-preserving
+    # GenerationContradictionJudge prompt is measured against in the
+    # real-provider Gate-0 v2 re-run.
+    by_regime = evaluate_contradict_by_regime(
+        load_contradict_cases(CONTRADICT), LexicalContradictionJudge()
+    )
+    for regime in ("unit", "partial", "temporal", "adversarial"):
+        assert by_regime[regime].recall < 1.0, regime
+
+
+def test_regime_breakdown_covers_every_case_exactly_once() -> None:
+    cases = load_contradict_cases(CONTRADICT)
+    by_regime = evaluate_contradict_by_regime(cases, LexicalContradictionJudge())
+    assert sum(report.case_count for report in by_regime.values()) == len(cases)

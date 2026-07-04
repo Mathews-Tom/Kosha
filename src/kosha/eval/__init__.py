@@ -11,6 +11,7 @@ from kosha.eval.contradict import (
     ContradictCase,
     ContradictEvalReport,
     evaluate_contradict,
+    evaluate_contradict_by_regime,
     load_contradict_cases,
 )
 from kosha.eval.dedup import (
@@ -51,6 +52,7 @@ __all__ = [
     "RelateCase",
     "RelateEvalReport",
     "evaluate_contradict",
+    "evaluate_contradict_by_regime",
     "evaluate_dedup",
     "evaluate_duplicate_rate",
     "evaluate_extractor",

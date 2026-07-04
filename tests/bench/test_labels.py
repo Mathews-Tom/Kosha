@@ -53,7 +53,7 @@ def test_label_corpus_has_m2_scale_and_all_suites_load() -> None:
 
     assert len(load_merge_cases(MERGE)) == 80
     assert len(load_relate_cases(RELATE)) == 80
-    assert len(load_contradict_cases(CONTRADICT)) == 120
+    assert len(load_contradict_cases(CONTRADICT)) == 156
 
     assert sum(len(_jsonl(path)) for path in LABEL_FILES) >= 550
 
@@ -87,6 +87,18 @@ def test_dedup_seed_meets_minimum_and_schema() -> None:
     assert all(p.label in {"same", "different"} for p in pairs)
     assert all(p.band in {"clear", "ambiguous"} for p in pairs)
     assert any(p.band == "ambiguous" for p in pairs)
+
+
+def test_contradict_seed_covers_every_subtle_regime() -> None:
+    cases = load_contradict_cases(CONTRADICT)
+    regimes = {case.regime for case in cases}
+    # M3 acceptance: the label corpus must exercise all four subtle regimes the
+    # S2 report diagnosed as the judge's blind spot, each with real headroom
+    # (both conflict and none cases, so precision and recall are both measured).
+    for regime in ("unit", "partial", "temporal", "adversarial"):
+        assert regime in regimes, regime
+        by_label = {case.label for case in cases if case.regime == regime}
+        assert by_label == {"conflict", "none"}, (regime, by_label)
 
 
 def test_threshold_only_leaves_an_unresolved_ambiguous_band() -> None:
