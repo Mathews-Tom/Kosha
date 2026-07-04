@@ -10,10 +10,13 @@ from __future__ import annotations
 
 from kosha.approve.autonomy import (
     DEFAULT_THRESHOLDS,
+    AutonomyEvalCase,
+    AutonomyEvalReport,
     AutonomyThresholds,
     ChangeRouting,
     Lane,
     PlanRouting,
+    evaluate_autonomy_confidence,
     render_routing,
     route_change,
     route_plan,
@@ -23,12 +26,15 @@ from kosha.approve.render import render_plan
 
 __all__ = [
     "DEFAULT_THRESHOLDS",
+    "AutonomyEvalCase",
+    "AutonomyEvalReport",
     "AutonomyThresholds",
     "ChangeRouting",
     "Decision",
     "Lane",
     "PlanRouting",
     "Reader",
+    "evaluate_autonomy_confidence",
     "parse_decision",
     "render_plan",
     "render_routing",
