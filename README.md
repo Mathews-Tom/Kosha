@@ -229,6 +229,7 @@ tests/, evals/      # pytest suites + per-surface eval gates
 | [Getting started](docs/getting-started.md) | First bundle, first ingest, first agent connection |
 | [CLI reference](docs/cli-reference.md) | Every command, flag, and exit code |
 | [MCP integration](docs/mcp-integration.md) | Connecting agents; the traversal contract |
+| [CI integration](docs/ci-integration.md) | Validate-on-PR GitHub Action for consumer repos |
 | [Configuration](docs/configuration.md) | Providers, environment variables |
 | [Authoring bundles](docs/authoring-bundles.md) | Concept frontmatter, links, temporal validity, conformance |
 | [System overview](docs/overview.md) | Thesis, market, risks, moat |
