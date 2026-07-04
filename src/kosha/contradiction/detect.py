@@ -226,12 +226,29 @@ def find_conflict(
 
 
 def build_contradiction_prompt(old: str, new: str) -> tuple[str, str]:
-    """Return the (query, context) pair posed to the generation provider."""
+    """Return the (query, context) pair posed to the generation provider.
+
+    Framed safety-first (Gate-0 v2, S2 interpretation): a strict "materially
+    contradicts" framing let the judge answer *compatible* on subtle regimes —
+    unit conversions, scope narrowing, temporal supersession, adversarial
+    rewordings — that a safety-instructed prompt flags. This framing defaults to
+    flagging a conflict whenever the two claims could not both be true at once,
+    and to flagging on uncertainty, matching the asymmetry of the safety-instructed
+    baseline this judge is measured against (never silently overwrite a prior
+    fact).
+    """
     query = (
-        "Decide whether the new claim materially contradicts the prior claim — "
-        "asserts something that cannot also be true of the same subject — or is "
-        "compatible (a restatement, a refinement, or an unrelated addition). "
-        "Answer with exactly one word: conflict or compatible."
+        "You are protecting a knowledge base from silently losing a prior fact. "
+        "Decide whether the new claim is safe to accept alongside the prior claim "
+        "without changing what the prior claim asserts. Flag a conflict if the new "
+        "claim could not also be true at the same time as the prior claim for the "
+        "same subject — including a different value, a narrower or broader scope, "
+        "a different unit or time window, a state that has since changed, or a "
+        "reworded claim that shifts the meaning. Only answer compatible when the "
+        "new claim is a clear restatement that changes nothing, or an unrelated "
+        "addition about a different subject. When unsure, flag conflict so a human "
+        "reviews it rather than risk a silent overwrite. Answer with exactly one "
+        "word: conflict or compatible."
     )
     context = f"Prior claim:\n{old}\n\nNew claim:\n{new}"
     return query, context
