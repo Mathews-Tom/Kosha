@@ -743,20 +743,6 @@ def _run_bench_realworld(args: argparse.Namespace) -> int:
         generation_provider,
         progress=_progress,
     )
-    print(
-        f"Real-model benchmark over {args.corpus} ({report.concept_count} concepts, "
-        f"embed={report.embedding_provider}, gen={report.generation_provider})"
-    )
-    print(
-        f"Maintenance accuracy: loop {report.maintenance_by_name('kosha_loop').accuracy:.2f} "
-        f"vs prompt-only {report.maintenance_by_name('prompt_only').accuracy:.2f} "
-        f"(delta {report.maintenance_delta:+.2f})"
-    )
-    print(
-        f"Contradiction safety: loop {report.safety_by_name('kosha_loop').safety_rate:.2f} "
-        f"vs prompt-only {report.safety_by_name('prompt_only').safety_rate:.2f} "
-        f"(delta {report.safety_delta:+.2f}, the reframed Gate-0 moat)"
-    )
     if args.json:
         print(cli_json.dumps(cli_json.bench_realworld_json(args.corpus, report)))
     else:
@@ -777,7 +763,8 @@ def _run_bench_realworld(args: argparse.Namespace) -> int:
         print(f"Gate 0 verdict: {report.verdict}")
     if args.report is not None:
         args.report.write_text(render_realworld_report(report), encoding="utf-8")
-        print(f"Wrote report to {args.report}")
+        if not args.json:
+            print(f"Wrote report to {args.report}")
     return 0
 
 
@@ -845,7 +832,8 @@ def _run_bench(bundle_path: Path, report_path: Path | None, json_output: bool = 
             kill_signals=kill_signals,
         )
         report_path.write_text(document, encoding="utf-8")
-        print(f"Wrote report to {report_path}")
+        if not json_output:
+            print(f"Wrote report to {report_path}")
     return 0
 
 
@@ -878,7 +866,8 @@ def _run_bench_acceptance(
         print(f"MVP success contract: {verdict}")
     if report_path is not None:
         report_path.write_text(render_acceptance_report(report), encoding="utf-8")
-        print(f"Wrote report to {report_path}")
+        if not json_output:
+            print(f"Wrote report to {report_path}")
     return 0 if report.passed else 1
 
 
