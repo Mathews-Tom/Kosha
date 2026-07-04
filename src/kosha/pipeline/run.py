@@ -106,6 +106,7 @@ class _Tools:
     judge: LexicalContradictionJudge
     authority: dict[str, int]
     asof: datetime
+    reviewer: str | None = None
     telemetry_sink: TelemetrySink | None = None
 
 
@@ -194,6 +195,7 @@ def ingest(
         judge=LexicalContradictionJudge(),
         authority={raw.source.source_id: raw.source.authority_rank for raw in raw_docs},
         asof=asof,
+        reviewer=reviewer,
         telemetry_sink=telemetry_sink,
     )
     accum = _Accumulator(concepts=dict(bundle.concepts))
@@ -282,6 +284,7 @@ def _apply(
             authority=tools.authority,
             targeter=tools.targeter,
             judge=tools.judge,
+            reviewer=tools.reviewer,
         )
         accum.concepts[decision.concept_id] = result.concept
         accum.meta[decision.concept_id] = _ChangeMeta(
@@ -300,7 +303,9 @@ def _apply(
         )
     elif decision.action is Action.CREATE:
         concept_id = new_concept_id(draft, source, taken=set(accum.concepts))
-        accum.concepts[concept_id] = create_concept(draft, concept_id, source, tools.asof)
+        accum.concepts[concept_id] = create_concept(
+            draft, concept_id, source, tools.asof, reviewer=tools.reviewer
+        )
         accum.meta[concept_id] = _ChangeMeta(
             summary=f"new {accum.concepts[concept_id].frontmatter.type}: {draft.title}",
             confidence=confidence,

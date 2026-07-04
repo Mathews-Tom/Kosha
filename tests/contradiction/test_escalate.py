@@ -123,3 +123,30 @@ def test_assert_no_silent_overwrite_allows_status_and_window_changes() -> None:
         )
     ]
     assert_no_silent_overwrite(before, after)  # does not raise
+
+
+def test_higher_authority_new_wins_links_old_via_contradicts() -> None:
+    old = [make_claim(_RETURNS_30, "wiki", _Q1)]
+    new = make_claim(_RETURNS_60, "official", _Q1)
+    result = reconcile(old, new, authority={"wiki": 0, "official": 10}, judge=_JUDGE)
+    loser = next(c for c in result.claims if c.claim_id == old[0].claim_id)
+    assert loser.status is ClaimStatus.CONTRADICTED
+    assert loser.contradicts == new.claim_id
+
+
+def test_higher_authority_old_wins_links_new_via_contradicts() -> None:
+    old = [make_claim(_RETURNS_30, "official", _Q1)]
+    new = make_claim(_RETURNS_60, "wiki", _Q1)
+    result = reconcile(old, new, authority={"official": 10, "wiki": 0}, judge=_JUDGE)
+    loser = next(c for c in result.claims if c.claim_id == new.claim_id)
+    assert loser.status is ClaimStatus.CONTRADICTED
+    assert loser.contradicts == old[0].claim_id
+
+
+def test_escalate_links_the_held_new_claim_via_contradicts() -> None:
+    old = [make_claim(_RETURNS_30, "wiki-a", _Q1)]
+    new = make_claim(_RETURNS_60, "wiki-b", _Q1)
+    result = reconcile(old, new, authority={}, judge=_JUDGE)
+    loser = next(c for c in result.claims if c.claim_id == new.claim_id)
+    assert loser.status is ClaimStatus.CONTRADICTED
+    assert loser.contradicts == old[0].claim_id

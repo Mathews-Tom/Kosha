@@ -114,7 +114,11 @@ def reconcile(
 
     if outcome.resolution is Resolution.AUTHORITY and outcome.winner == "new":
         updated = _replace(
-            claims, old.claim_id, old.model_copy(update={"status": ClaimStatus.CONTRADICTED})
+            claims,
+            old.claim_id,
+            old.model_copy(
+                update={"status": ClaimStatus.CONTRADICTED, "contradicts": new_claim.claim_id}
+            ),
         )
         winner = new_claim.model_copy(
             update={"status": ClaimStatus.CURRENT, "supersedes": old.claim_id}
@@ -123,7 +127,9 @@ def reconcile(
 
     # Authority keeps the old claim, or the conflict escalates: in both cases the
     # old claim stays current and the new claim is retained as contradicted.
-    loser = new_claim.model_copy(update={"status": ClaimStatus.CONTRADICTED})
+    loser = new_claim.model_copy(
+        update={"status": ClaimStatus.CONTRADICTED, "contradicts": old.claim_id}
+    )
     escalation = (
         Escalation(old, new_claim, outcome.rationale) if outcome.escalated else None
     )
