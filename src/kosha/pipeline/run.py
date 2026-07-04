@@ -42,7 +42,7 @@ from kosha.dedup import (
 from kosha.dedup.resolver import Decision as DedupDecision
 from kosha.dedup.split import Splitter
 from kosha.extract import ConceptDraft, extract_concepts
-from kosha.git_store import GitStore
+from kosha.git_store import GitStore, IngestLock
 from kosha.index.embedding import EmbeddingIndex, index_text
 from kosha.indexlog import LogEntry, append_entries, regenerate_indexes
 from kosha.ingest import ingest_folder
@@ -233,9 +233,7 @@ def _resolve_and_apply(
     draft: ConceptDraft, source: Source, tools: _Tools, accum: _Accumulator
 ) -> None:
     """Resolve one draft and apply it; a SPLIT re-segments and re-resolves each part."""
-    decision = resolve_draft(
-        draft, tools.index, tools.concept_texts, adjudicator=tools.adjudicator
-    )
+    decision = resolve_draft(draft, tools.index, tools.concept_texts, adjudicator=tools.adjudicator)
     accum.audit.extend(record_decisions(draft, decision))
     if decision.action is Action.SPLIT:
         for sub_draft in tools.splitter(draft):
@@ -373,21 +371,28 @@ def _commit(
     branch: str | None,
     result: IngestResult,
 ) -> None:
-    """Write the approved plan and commit it on an ingest branch with a backup tag."""
+    """Write the approved plan and commit it on an ingest branch with a backup tag.
+
+    The branch-switch/write/commit sequence mutates the repo's one shared
+    working tree, so it runs under an exclusive per-repository lock: a second
+    concurrent ingest against the same bundle fails loudly (IngestLockError)
+    rather than racing this one's branch switch or file writes.
+    """
     store = git_store or GitStore(bundle_root)
-    branch_name = branch or f"ingest/{source.name}-{asof:%Y%m%d%H%M%S}"
-    store.create_branch(branch_name)
-    written: list[Path] = []
-    for change in plan.changes:
-        path = bundle_root / change.path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(change.content, encoding="utf-8")
-        written.append(path)
-    body = "\n".join(f"- {change.kind.value} {change.path}" for change in plan.changes)
-    result.commit_sha = store.commit(written, f"feat(kosha): ingest {source.name}\n\n{body}")
-    result.backup_tag = store.tag_daily_backup(asof.date())
-    result.committed = True
-    result.branch = branch_name
+    with IngestLock(store.repo):
+        branch_name = branch or f"ingest/{source.name}-{asof:%Y%m%d%H%M%S}"
+        store.create_branch(branch_name)
+        written: list[Path] = []
+        for change in plan.changes:
+            path = bundle_root / change.path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(change.content, encoding="utf-8")
+            written.append(path)
+        body = "\n".join(f"- {change.kind.value} {change.path}" for change in plan.changes)
+        result.commit_sha = store.commit(written, f"feat(kosha): ingest {source.name}\n\n{body}")
+        result.backup_tag = store.tag_daily_backup(asof.date())
+        result.committed = True
+        result.branch = branch_name
 
 
 def _update_summary(result: UpdateResult) -> str:
