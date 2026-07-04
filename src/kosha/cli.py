@@ -70,6 +70,7 @@ from kosha.eval import (
     load_merge_cases,
     load_relate_cases,
 )
+from kosha.git_store import GitStore
 from kosha.link import LexicalRelator
 from kosha.mcp.service import AccessDeniedError, resolve_bundle_access, resolve_clearance
 from kosha.merge import LexicalClaimTargeter
@@ -77,6 +78,15 @@ from kosha.okf import load_bundle
 from kosha.pipeline import commit_reviewed_plan, ingest
 from kosha.plan import build_plan
 from kosha.providers import resolve_embedding_provider, resolve_generation_provider
+from kosha.recovery import (
+    RecoveryError,
+    append_audit_log,
+    apply_reindex,
+    apply_restore,
+    describe_reindex,
+    describe_restore,
+    list_backups,
+)
 from kosha.validate import validate_bundle
 
 # Default golden corpus the benchmark runs against, and the seed label files.
@@ -427,6 +437,93 @@ def build_parser() -> argparse.ArgumentParser:
             "only, since source body text may be sensitive."
         ),
     )
+    recover_parser = subparsers.add_parser(
+        "recover",
+        help="Backup-tag-based recovery: list backups, restore, or reindex.",
+    )
+    recover_subparsers = recover_parser.add_subparsers(dest="recover_command")
+    backups_parser = recover_subparsers.add_parser(
+        "backups",
+        help="List available backup tags.",
+    )
+    backups_parser.add_argument(
+        "bundle",
+        type=Path,
+        help="Path to the OKF bundle directory (a Git repository).",
+    )
+    backups_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
+    restore_parser = recover_subparsers.add_parser(
+        "restore",
+        help="Restore a bundle to a backup tag's recorded state.",
+    )
+    restore_parser.add_argument(
+        "bundle",
+        type=Path,
+        help="Path to the OKF bundle directory (a Git repository).",
+    )
+    restore_parser.add_argument(
+        "--tag",
+        type=str,
+        required=True,
+        help="Backup tag to restore to (see 'kosha recover backups'), e.g. backup/2026-07-01.",
+    )
+    restore_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually perform the restore. Default is dry-run: show the plan only.",
+    )
+    restore_parser.add_argument(
+        "--branch",
+        type=str,
+        default=None,
+        help="Branch to commit the restore on (default: recovery/restore-<tag>-<timestamp>).",
+    )
+    restore_parser.add_argument(
+        "--audit-log",
+        type=Path,
+        default=None,
+        help="Append the audit record to this JSONL file.",
+    )
+    restore_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
+    reindex_parser = recover_subparsers.add_parser(
+        "reindex",
+        help="Regenerate index.md files that drifted from the bundle's concepts.",
+    )
+    reindex_parser.add_argument(
+        "bundle",
+        type=Path,
+        help="Path to the OKF bundle directory (a Git repository).",
+    )
+    reindex_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually write and commit the reindex. Default is dry-run: show the plan only.",
+    )
+    reindex_parser.add_argument(
+        "--branch",
+        type=str,
+        default=None,
+        help="Branch to commit the reindex on (default: recovery/reindex-<timestamp>).",
+    )
+    reindex_parser.add_argument(
+        "--audit-log",
+        type=Path,
+        default=None,
+        help="Append the audit record to this JSONL file.",
+    )
+    reindex_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
     return parser
 
 
@@ -452,6 +549,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_export(args)
     if args.command == "calibrate":
         return _run_calibrate(args)
+    if args.command == "recover":
+        return _run_recover(args)
     parser.print_help()
     return 0
 
@@ -920,6 +1019,103 @@ def _run_eval_contradict(labels_path: Path, json_output: bool = False) -> int:
             f"({regime_report.case_count} cases)"
         )
     return 0
+
+
+def _run_recover(args: argparse.Namespace) -> int:
+    """Dispatch ``kosha recover <backups|restore|reindex>``."""
+    if getattr(args, "recover_command", None) is None:
+        print("kosha: usage: kosha recover {backups,restore,reindex} [...]", file=sys.stderr)
+        return 2
+    if not args.bundle.is_dir():
+        print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
+        return 2
+    store = GitStore(args.bundle)
+    if not store.is_repo():
+        print(f"kosha: not a git repository: {args.bundle}", file=sys.stderr)
+        return 2
+    if args.recover_command == "backups":
+        return _run_recover_backups(args, store)
+    if args.recover_command == "restore":
+        return _run_recover_restore(args, store)
+    return _run_recover_reindex(args, store)
+
+
+def _run_recover_backups(args: argparse.Namespace, store: GitStore) -> int:
+    """Run ``kosha recover backups``: list every ``backup/<date>`` tag."""
+    backups = list_backups(store)
+    if args.json:
+        print(cli_json.dumps(cli_json.recover_backups_json(args.bundle, backups)))
+        return 0
+    if not backups:
+        print("No backup tags found.")
+        return 0
+    for backup in backups:
+        print(f"{backup.name}  {backup.sha[:8]}")
+    return 0
+
+
+def _run_recover_restore(args: argparse.Namespace, store: GitStore) -> int:
+    """Run ``kosha recover restore``: dry-run by default, mutate only with ``--apply``."""
+    try:
+        plan = describe_restore(store, args.tag)
+    except RecoveryError as exc:
+        print(f"kosha: {exc}", file=sys.stderr)
+        return 2
+    record = None
+    if args.apply:
+        record = apply_restore(store, plan, branch=args.branch)
+        if args.audit_log is not None:
+            append_audit_log(args.audit_log, record)
+    if args.json:
+        print(cli_json.dumps(cli_json.recover_restore_json(args.bundle, plan, record)))
+        return 0
+    print(f"Restore plan: {plan.tag} -> {plan.ref[:8]}")
+    if plan.is_empty:
+        print("No differences: nothing to restore.")
+        return 0
+    for change in plan.changes:
+        print(f"  {change.status} {change.path}")
+    if record is None:
+        print(
+            f"\ndry run: no changes written. "
+            f"Re-run with --apply to restore {len(plan.changes)} file(s)."
+        )
+        return 0
+    print(
+        f"\nrestored {len(plan.changes)} file(s) on {record.branch} "
+        f"(commit {(record.commit_sha or '')[:8]}, backup {record.backup_tag})."
+    )
+    return 0
+
+
+def _run_recover_reindex(args: argparse.Namespace, store: GitStore) -> int:
+    """Run ``kosha recover reindex``: dry-run by default, mutate only with ``--apply``."""
+    plan = describe_reindex(args.bundle)
+    record = None
+    if args.apply:
+        record = apply_reindex(store, args.bundle, plan, branch=args.branch)
+        if args.audit_log is not None:
+            append_audit_log(args.audit_log, record)
+    if args.json:
+        print(cli_json.dumps(cli_json.recover_reindex_json(args.bundle, plan, record)))
+        return 0
+    if plan.is_empty:
+        print("No drift: every index.md already matches the bundle's concepts.")
+        return 0
+    for change in plan.changes:
+        print(f"  {change.action} {change.path}")
+    if record is None:
+        print(
+            f"\ndry run: no changes written. "
+            f"Re-run with --apply to reindex {len(plan.changes)} file(s)."
+        )
+        return 0
+    print(
+        f"\nreindexed {len(plan.changes)} file(s) on {record.branch} "
+        f"(commit {(record.commit_sha or '')[:8]}, backup {record.backup_tag})."
+    )
+    return 0
+
 
 
 def _max_depth(concept_ids: Iterable[str]) -> int:

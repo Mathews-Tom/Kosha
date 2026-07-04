@@ -38,6 +38,7 @@ from kosha.eval import (
     RelateEvalReport,
 )
 from kosha.pipeline import IngestResult
+from kosha.recovery import BackupTag, RecoveryRecord, ReindexPlan, RestorePlan
 from kosha.validate import Report
 
 
@@ -341,4 +342,52 @@ def ingest_json(result: IngestResult, *, dry_run: bool) -> dict[str, Any]:
                 for route in result.routing.routes
             ],
         },
+    }
+
+
+def recover_backups_json(bundle: Path, backups: list[BackupTag]) -> dict[str, Any]:
+    """Structured ``kosha recover backups --json`` result."""
+    return {
+        "bundle": str(bundle),
+        "backups": [{"name": b.name, "sha": b.sha, "date": b.date} for b in backups],
+    }
+
+
+def recover_restore_json(
+    bundle: Path, plan: RestorePlan, record: RecoveryRecord | None
+) -> dict[str, Any]:
+    """Structured ``kosha recover restore --json`` result."""
+    return {
+        "bundle": str(bundle),
+        "tag": plan.tag,
+        "ref": plan.ref,
+        "changes": [{"status": c.status, "path": c.path} for c in plan.changes],
+        "applied": record.applied if record is not None else False,
+        "record": to_recovery_json(record) if record is not None else None,
+    }
+
+
+def recover_reindex_json(
+    bundle: Path, plan: ReindexPlan, record: RecoveryRecord | None
+) -> dict[str, Any]:
+    """Structured ``kosha recover reindex --json`` result."""
+    return {
+        "bundle": str(bundle),
+        "changes": [{"action": c.action, "path": c.path} for c in plan.changes],
+        "applied": record.applied if record is not None else False,
+        "record": to_recovery_json(record) if record is not None else None,
+    }
+
+
+def to_recovery_json(record: RecoveryRecord) -> dict[str, Any]:
+    """Structured view of a :class:`~kosha.recovery.RecoveryRecord`."""
+    return {
+        "action": record.action,
+        "applied": record.applied,
+        "timestamp": record.timestamp,
+        "backup_tag": record.backup_tag,
+        "branch": record.branch,
+        "commit_sha": record.commit_sha,
+        "paths": list(record.paths),
+        "source_ref": record.source_ref,
     }
