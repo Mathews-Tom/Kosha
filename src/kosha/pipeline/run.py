@@ -64,6 +64,12 @@ from kosha.plan import (
 )
 from kosha.providers import resolve_embedding_provider, resolve_generation_provider
 from kosha.providers.base import EmbeddingProvider, GenerationProvider
+from kosha.telemetry import (
+    TelemetrySink,
+    emit_decision,
+    emit_provider_call,
+    emit_route,
+)
 
 _LOG_NAME = "log.md"
 # Top-level source directory -> OKF concept type, so a folder mirroring the bundle
@@ -98,6 +104,7 @@ class _Tools:
     judge: LexicalContradictionJudge
     authority: dict[str, int]
     asof: datetime
+    telemetry_sink: TelemetrySink | None = None
 
 
 @dataclass
@@ -156,6 +163,7 @@ def ingest(
     branch: str | None = None,
     embedding_provider: EmbeddingProvider | None = None,
     generation_provider: GenerationProvider | None = None,
+    telemetry_sink: TelemetrySink | None = None,
 ) -> IngestResult:
     """Ingest ``source`` into the bundle at ``bundle_root`` behind the approve gate."""
     embedder = embedding_provider or resolve_embedding_provider()
@@ -175,9 +183,15 @@ def ingest(
         judge=LexicalContradictionJudge(),
         authority={raw.source.source_id: raw.source.authority_rank for raw in raw_docs},
         asof=asof,
+        telemetry_sink=telemetry_sink,
     )
     accum = _Accumulator(concepts=dict(bundle.concepts))
 
+    emit_provider_call(
+        telemetry_sink,
+        surface="pipeline.extract",
+        provider_name=generator.name,
+    )
     for raw in raw_docs:
         type_hint = _TYPE_BY_DIR.get(_top_dir(raw.source.source_id), "concept")
         for draft in extract_concepts(raw, generator, type_hint=type_hint):
@@ -191,10 +205,24 @@ def ingest(
     ]
     plan = build_plan(changes, accum.flags)
     routing = route_plan(plan, thresholds)
+    for route in routing.routes:
+        emit_route(
+            telemetry_sink,
+            surface="pipeline.route",
+            lane=route.lane.label,
+            confidence=route.change.confidence,
+            provider_name=embedder.name,
+        )
     if dry_run:
         return IngestResult(plan, routing, audit=accum.audit)
 
     decision = decide_plan(routing, reader=reader, assume_yes=assume_yes)
+    emit_decision(
+        telemetry_sink,
+        surface="pipeline.approve",
+        outcome=decision.value,
+        lane=routing.lane.label,
+    )
     result = IngestResult(plan, routing, decision=decision, audit=accum.audit)
     if decision is Decision.APPROVE and not plan.is_empty:
         _commit(plan, bundle_root, asof, source, git_store, branch, result)
@@ -225,6 +253,13 @@ def _apply(
 ) -> None:
     """Apply a terminal UPDATE/CREATE decision to the working concept set."""
     confidence = 0.5 if decision.adjudicated else 1.0
+    emit_decision(
+        tools.telemetry_sink,
+        surface="pipeline.dedup",
+        outcome=decision.action.value,
+        confidence=confidence,
+        provider_name=tools.adjudicator.__class__.__name__,
+    )
     if decision.action is Action.UPDATE:
         assert decision.concept_id is not None
         existing = accum.concepts[decision.concept_id]
