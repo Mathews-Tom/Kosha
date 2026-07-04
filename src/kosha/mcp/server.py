@@ -14,18 +14,20 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Mapping
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
 from kosha.mcp.service import (
+    ClaimHistoryView,
     ConceptView,
     FindView,
     FrontmatterView,
     IndexView,
     KoshaKnowledgeService,
     LinksView,
+    resolve_bundle_access,
+    resolve_clearance,
 )
 
 _INSTRUCTIONS = (
@@ -94,18 +96,19 @@ def build_server(
         """
         return service.follow_links(concept_id)
 
+    @server.tool()
+    def claim_history(concept_id: str, claim_id: str | None = None) -> ClaimHistoryView:
+        """Show a concept's claim lineage: full audit trail, or one claim's chain.
+
+        Omit ``claim_id`` for the concept's whole claim history (current,
+        superseded, and contradicted claims, chronological). Pass a specific
+        ``claim_id`` to see just that claim's supersede chain plus the claims
+        rejected against it — what superseded it, when, from which source, and
+        under which approver identity.
+        """
+        return service.claim_history(concept_id, claim_id)
+
     return server
-
-
-def resolve_clearance(env: Mapping[str, str]) -> frozenset[str]:
-    """Parse the caller's clearance labels from ``KOSHA_CLEARANCE`` (comma-separated)."""
-    raw = env.get("KOSHA_CLEARANCE", "")
-    return frozenset(item.strip() for item in raw.split(",") if item.strip())
-
-
-def resolve_bundle_access(env: Mapping[str, str]) -> str | None:
-    """Parse the bundle's required access label from ``KOSHA_BUNDLE_ACCESS``."""
-    return env.get("KOSHA_BUNDLE_ACCESS", "").strip() or None
 
 
 def main() -> None:

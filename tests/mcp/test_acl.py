@@ -29,6 +29,8 @@ def test_every_tool_denies_an_uncleared_bundle(
         locked.find_concepts("returns")
     with pytest.raises(AccessDeniedError):
         locked.follow_links("policies/shipping")
+    with pytest.raises(AccessDeniedError):
+        locked.claim_history("policies/shipping")
 
 
 def test_clearance_unlocks_every_tool(
@@ -42,6 +44,7 @@ def test_clearance_unlocks_every_tool(
     assert cleared.load_concept("policies/shipping")["body"]
     assert cleared.find_concepts("returns")["candidates"]
     assert "out_links" in cleared.follow_links("policies/shipping")
+    assert cleared.claim_history("policies/shipping")["entries"]
 
 
 def test_public_bundle_needs_no_clearance(service: KoshaKnowledgeService) -> None:
