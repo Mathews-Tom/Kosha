@@ -50,7 +50,7 @@ from kosha.ingest import ingest_folder
 from kosha.link import LexicalRelator, compute_backlinks, crosslink
 from kosha.merge.create import create_concept
 from kosha.merge.update import LexicalClaimTargeter
-from kosha.model import Bundle, Concept, Source
+from kosha.model import Bundle, Concept, RawDoc, Source
 from kosha.okf.load import load_bundle
 from kosha.okf.serialize import serialize_concept
 from kosha.pipeline.writer import UpdateResult, apply_update, new_concept_id
@@ -169,6 +169,7 @@ def ingest(
     embedding_provider: EmbeddingProvider | None = None,
     generation_provider: GenerationProvider | None = None,
     telemetry_sink: TelemetrySink | None = None,
+    raw_docs: list[RawDoc] | None = None,
 ) -> IngestResult:
     """Ingest ``source`` into the bundle at ``bundle_root`` behind the approve gate.
 
@@ -181,7 +182,11 @@ def ingest(
     embedder = embedding_provider or resolve_embedding_provider()
     generator = generation_provider or resolve_generation_provider()
 
-    raw_docs = ingest_folder(source, authority_rank=source_authority)
+    docs = (
+        raw_docs
+        if raw_docs is not None
+        else ingest_folder(source, authority_rank=source_authority)
+    )
     bundle = (
         load_bundle(bundle_root) if bundle_root.is_dir() else Bundle(root_path=str(bundle_root))
     )
@@ -193,7 +198,7 @@ def ingest(
         splitter=make_splitter(generator),
         targeter=LexicalClaimTargeter(),
         judge=LexicalContradictionJudge(),
-        authority={raw.source.source_id: raw.source.authority_rank for raw in raw_docs},
+        authority={raw.source.source_id: raw.source.authority_rank for raw in docs},
         asof=asof,
         reviewer=reviewer,
         telemetry_sink=telemetry_sink,
@@ -205,7 +210,7 @@ def ingest(
         surface="pipeline.extract",
         provider_name=generator.name,
     )
-    for raw in raw_docs:
+    for raw in docs:
         type_hint = _TYPE_BY_DIR.get(_top_dir(raw.source.source_id), "concept")
         for draft in extract_concepts(raw, generator, type_hint=type_hint):
             _resolve_and_apply(draft, raw.source, tools, accum)
