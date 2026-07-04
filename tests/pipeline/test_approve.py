@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from kosha.approve import Decision, Reader, parse_decision, render_plan, request_decision
+import pytest
+
+from kosha.approve import (
+    Decision,
+    Reader,
+    normalize_reviewer,
+    parse_decision,
+    render_plan,
+    request_decision,
+)
 from kosha.plan import (
     ChangeKind,
     ChangePlan,
@@ -94,3 +103,25 @@ def test_request_decision_rejects_on_closed_input() -> None:
         raise EOFError
 
     assert request_decision(closed) is Decision.REJECT
+
+
+def test_normalize_reviewer_none_stays_none() -> None:
+    assert normalize_reviewer(None) is None
+
+
+def test_normalize_reviewer_blank_becomes_none() -> None:
+    assert normalize_reviewer("   ") is None
+
+
+def test_normalize_reviewer_strips_whitespace() -> None:
+    assert normalize_reviewer("  Jane Doe <jane@example.com>  ") == "Jane Doe <jane@example.com>"
+
+
+def test_normalize_reviewer_rejects_embedded_newline() -> None:
+    with pytest.raises(ValueError, match="newline"):
+        normalize_reviewer("Jane Doe\nReviewed-by: Forged Identity")
+
+
+def test_normalize_reviewer_rejects_embedded_carriage_return() -> None:
+    with pytest.raises(ValueError, match="newline"):
+        normalize_reviewer("Jane Doe\rReviewed-by: Forged Identity")

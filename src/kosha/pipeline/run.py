@@ -27,6 +27,7 @@ from kosha.approve import (
     Decision,
     PlanRouting,
     Reader,
+    normalize_reviewer,
     request_decision,
     route_plan,
 )
@@ -128,6 +129,7 @@ class IngestResult:
     branch: str | None = None
     commit_sha: str | None = None
     backup_tag: str | None = None
+    reviewer: str | None = None
     audit: list[DecisionRecord] = field(default_factory=list)
 
 
@@ -161,11 +163,19 @@ def ingest(
     reader: Reader | None = None,
     git_store: GitStore | None = None,
     branch: str | None = None,
+    reviewer: str | None = None,
     embedding_provider: EmbeddingProvider | None = None,
     generation_provider: GenerationProvider | None = None,
     telemetry_sink: TelemetrySink | None = None,
 ) -> IngestResult:
-    """Ingest ``source`` into the bundle at ``bundle_root`` behind the approve gate."""
+    """Ingest ``source`` into the bundle at ``bundle_root`` behind the approve gate.
+
+    ``reviewer`` is the approving human's identity (e.g. "Jane Doe
+    <jane@example.com>"); when supplied it is recorded as a ``Reviewed-by``
+    trailer on the commit. It is normalized (and validated) up front so a
+    malformed value fails before any pipeline work runs, not after.
+    """
+    reviewer = normalize_reviewer(reviewer)
     embedder = embedding_provider or resolve_embedding_provider()
     generator = generation_provider or resolve_generation_provider()
 
@@ -223,9 +233,9 @@ def ingest(
         outcome=decision.value,
         lane=routing.lane.label,
     )
-    result = IngestResult(plan, routing, decision=decision, audit=accum.audit)
+    result = IngestResult(plan, routing, decision=decision, reviewer=reviewer, audit=accum.audit)
     if decision is Decision.APPROVE and not plan.is_empty:
-        _commit(plan, bundle_root, asof, source, git_store, branch, result)
+        _commit(plan, bundle_root, asof, source, git_store, branch, reviewer, result)
     return result
 
 
@@ -369,6 +379,7 @@ def _commit(
     source: Path,
     git_store: GitStore | None,
     branch: str | None,
+    reviewer: str | None,
     result: IngestResult,
 ) -> None:
     """Write the approved plan and commit it on an ingest branch with a backup tag.
@@ -376,7 +387,9 @@ def _commit(
     The branch-switch/write/commit sequence mutates the repo's one shared
     working tree, so it runs under an exclusive per-repository lock: a second
     concurrent ingest against the same bundle fails loudly (IngestLockError)
-    rather than racing this one's branch switch or file writes.
+    rather than racing this one's branch switch or file writes. When a
+    reviewer identity was supplied and approved the plan, it is recorded as a
+    ``Reviewed-by`` trailer so the commit names who approved it.
     """
     store = git_store or GitStore(bundle_root)
     with IngestLock(store.repo):
@@ -389,7 +402,10 @@ def _commit(
             path.write_text(change.content, encoding="utf-8")
             written.append(path)
         body = "\n".join(f"- {change.kind.value} {change.path}" for change in plan.changes)
-        result.commit_sha = store.commit(written, f"feat(kosha): ingest {source.name}\n\n{body}")
+        message = f"feat(kosha): ingest {source.name}\n\n{body}"
+        if reviewer is not None:
+            message = f"{message}\n\nReviewed-by: {reviewer}"
+        result.commit_sha = store.commit(written, message)
         result.backup_tag = store.tag_daily_backup(asof.date())
         result.committed = True
         result.branch = branch_name
