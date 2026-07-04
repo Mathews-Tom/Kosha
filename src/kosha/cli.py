@@ -42,6 +42,7 @@ from kosha.bench.acceptance import render_acceptance_report, run_acceptance
 from kosha.bench.corpus import CORPUS_NAME, build_corpus
 from kosha.bench.realworld import (
     RealworldConfig,
+    local_provider_gate_warning,
     render_realworld_report,
     run_realworld,
 )
@@ -412,13 +413,19 @@ def _run_bench_realworld(args: argparse.Namespace) -> int:
         print(f"[realworld] {message}", file=sys.stderr, flush=True)
 
     embedding_provider = resolve_embedding_provider()
+    generation_provider = resolve_generation_provider()
     mismatch = default_threshold_mismatch(embedding_provider, DEFAULT_THRESHOLDS)
     if mismatch is not None:
         print(f"kosha: warning: {mismatch}", file=sys.stderr)
+    local_warning = local_provider_gate_warning(
+        embedding_provider.name, generation_provider.name, config.ingests
+    )
+    if local_warning is not None:
+        print(f"kosha: warning: {local_warning}", file=sys.stderr)
     report = run_realworld(
         config,
         embedding_provider,
-        resolve_generation_provider(),
+        generation_provider,
         progress=_progress,
     )
     print(

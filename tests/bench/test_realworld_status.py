@@ -6,6 +6,7 @@ from pathlib import Path
 
 from kosha.bench.realworld import (
     RealworldConfig,
+    local_provider_gate_warning,
     render_gate_status_row,
     render_gate_status_summary,
     run_realworld,
@@ -108,3 +109,25 @@ def test_render_gate_status_summary_states_go_when_the_loop_wins() -> None:
     summary = render_gate_status_summary(_stub_report(verdict_no_go=False))
     assert "Real-model Gate-0 verdict: GO" in summary
     assert "M14+ product expansion may proceed" in summary
+
+
+def test_local_provider_gate_warning_fires_at_real_gate0_scale() -> None:
+    warning = local_provider_gate_warning("lexical-hash-256", "extractive-3", 50)
+    assert warning is not None
+    assert "NOT a valid Gate-0 verdict" in warning
+
+
+def test_local_provider_gate_warning_is_silent_below_the_real_run_threshold() -> None:
+    # The offline smoke (--ingests 5) is expected to use local providers.
+    assert local_provider_gate_warning("lexical-hash-256", "extractive-3", 5) is None
+
+
+def test_local_provider_gate_warning_is_silent_once_real_providers_are_configured() -> None:
+    assert local_provider_gate_warning("openai:bge-m3", "openai:gpt-4o-mini", 50) is None
+
+
+def test_local_provider_gate_warning_fires_if_only_one_side_is_real() -> None:
+    # Gate-0 needs a real embedding AND a real generation model; a real
+    # embedding paired with the local extractive generator is still not a
+    # valid Gate-0 run.
+    assert local_provider_gate_warning("openai:bge-m3", "extractive-3", 50) is not None

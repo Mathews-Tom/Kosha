@@ -13,7 +13,35 @@ from it.
 
 from __future__ import annotations
 
-from kosha.bench.realworld.runner import SAFETY_MARGIN, RealworldReport
+from kosha.bench.realworld.runner import MIN_INGESTS, SAFETY_MARGIN, RealworldReport
+
+
+def local_provider_gate_warning(
+    embedding_provider_name: str, generation_provider_name: str, ingests: int
+) -> str | None:
+    """Warn when a full-scale Gate-0 attempt is using local, non-real providers.
+
+    A run with ``ingests >= MIN_INGESTS`` is shaped like a real Gate-0 attempt,
+    but the local lexical/extractive providers cannot reason about the
+    contradiction regimes or answer quality Gate-0 measures, so its verdict is
+    not a valid recorded result (DEVELOPMENT_PLAN M3 gap: "a GO/NO-GO verdict
+    is only valid when real providers are configured"). Returns ``None`` below
+    the real-run threshold (the offline smoke, which is expected to use local
+    providers) or once real providers are configured.
+    """
+    if ingests < MIN_INGESTS:
+        return None
+    local = embedding_provider_name.startswith("lexical") or generation_provider_name.startswith(
+        "extractive"
+    )
+    if not local:
+        return None
+    return (
+        f"embedding '{embedding_provider_name}' and/or generation "
+        f"'{generation_provider_name}' are local, non-real providers; a "
+        f"{ingests}-ingest run with them is NOT a valid Gate-0 verdict — configure "
+        "real providers before recording a Gate-0 result."
+    )
 
 
 def render_gate_status_summary(report: RealworldReport) -> str:

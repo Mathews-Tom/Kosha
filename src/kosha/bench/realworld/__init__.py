@@ -32,7 +32,11 @@ from kosha.bench.realworld.runner import (
     render_realworld_report,
     run_realworld,
 )
-from kosha.bench.realworld.status import render_gate_status_row, render_gate_status_summary
+from kosha.bench.realworld.status import (
+    local_provider_gate_warning,
+    render_gate_status_row,
+    render_gate_status_summary,
+)
 
 __all__ = [
     "KILL_CRITERION",
@@ -50,6 +54,7 @@ __all__ = [
     "SafetyResult",
     "load_maintenance",
     "load_queries",
+    "local_provider_gate_warning",
     "render_gate_status_row",
     "render_gate_status_summary",
     "render_realworld_report",
