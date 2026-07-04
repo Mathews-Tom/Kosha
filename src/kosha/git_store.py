@@ -19,16 +19,99 @@ commits succeed without depending on a machine's global git config.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
+from types import TracebackType
 
 _BACKUP_PREFIX = "backup"
+_LOCK_NAME = "kosha-ingest.lock"
 
 
 class GitError(RuntimeError):
     """A ``git`` invocation exited non-zero."""
+
+
+class IngestLockError(RuntimeError):
+    """Raised when a concurrent ingest already holds the repository's ingest lock."""
+
+
+class IngestLock:
+    """An exclusive, PID-stamped lock over one repository's ingest-commit phase.
+
+    Two concurrent ingests against the same bundle repo share one working tree:
+    ``GitStore.create_branch``/``commit`` mutate it via ``git`` subprocesses with
+    no isolation between processes, so one ingest's branch switch can land
+    between another's file write and commit, corrupting the branch or silently
+    mixing changes from two ingests into one commit. This lock makes that
+    write-phase exclusive per repository and fails loudly rather than letting
+    two ingests interleave; it does not queue or wait, since a wait with no
+    timeout risks a hung holder blocking every future ingest indefinitely.
+    """
+
+    def __init__(self, repo: Path, *, name: str = _LOCK_NAME) -> None:
+        self._path = repo / ".git" / name
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    def acquire(self) -> None:
+        """Acquire the lock, reclaiming a stale one first; raise if still held."""
+        self._reclaim_if_stale()
+        try:
+            fd = os.open(self._path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            raise IngestLockError(
+                f"another ingest (pid {self._read_holder()}) holds the lock at "
+                f"{self._path}; wait for it to finish, or remove the lock file "
+                "if that process crashed"
+            ) from None
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(str(os.getpid()))
+
+    def release(self) -> None:
+        """Release the lock. Safe to call even if it was never acquired."""
+        self._path.unlink(missing_ok=True)
+
+    def __enter__(self) -> IngestLock:
+        self.acquire()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.release()
+
+    def _read_holder(self) -> str:
+        try:
+            return self._path.read_text(encoding="utf-8").strip() or "unknown"
+        except OSError:
+            return "unknown"
+
+    def _reclaim_if_stale(self) -> None:
+        """Remove the lock file if its recorded PID is no longer a live process."""
+        if not self._path.is_file():
+            return
+        raw = self._read_holder()
+        if not raw.isdigit() or _pid_is_alive(int(raw)):
+            return
+        self._path.unlink(missing_ok=True)
+
+
+def _pid_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 class GitStore:
