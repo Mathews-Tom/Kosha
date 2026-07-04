@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from kosha.bench import (
@@ -10,11 +11,74 @@ from kosha.bench import (
     load_dedup_pairs,
     load_granularity_labels,
 )
+from kosha.eval import load_contradict_cases, load_merge_cases, load_relate_cases
 from kosha.providers import LexicalEmbeddingProvider
 
 ROOT = Path(__file__).resolve().parents[2]
 DEDUP = ROOT / "labels" / "dedup_seed.jsonl"
 GRANULARITY = ROOT / "labels" / "granularity_seed.jsonl"
+MERGE = ROOT / "labels" / "merge_seed.jsonl"
+RELATE = ROOT / "labels" / "relate_seed.jsonl"
+CONTRADICT = ROOT / "labels" / "contradict_seed.jsonl"
+LABEL_FILES = (DEDUP, GRANULARITY, MERGE, RELATE, CONTRADICT)
+REALWORLD_FILES = (
+    ROOT / "evals" / "realworld" / "queries.jsonl",
+    ROOT / "evals" / "realworld" / "maintenance.jsonl",
+)
+
+
+def _jsonl(path: Path) -> list[dict[str, object]]:
+    records: list[dict[str, object]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        parsed = json.loads(stripped)
+        assert isinstance(parsed, dict), path
+        records.append(parsed)
+    return records
+
+
+def _fingerprint(value: object) -> str:
+    if isinstance(value, dict):
+        return " ".join(_fingerprint(value[key]) for key in sorted(value))
+    if isinstance(value, list):
+        return " ".join(_fingerprint(item) for item in value)
+    return " ".join(str(value).lower().split())
+
+
+def test_label_corpus_has_m2_scale_and_all_suites_load() -> None:
+    assert len(load_dedup_pairs(DEDUP)) == 160
+    assert len(load_granularity_labels(GRANULARITY)) == 110
+
+    assert len(load_merge_cases(MERGE)) == 80
+    assert len(load_relate_cases(RELATE)) == 80
+    assert len(load_contradict_cases(CONTRADICT)) == 120
+
+    assert sum(len(_jsonl(path)) for path in LABEL_FILES) >= 550
+
+
+def test_label_corpus_has_no_duplicate_records() -> None:
+    fingerprints: dict[str, Path] = {}
+    for path in LABEL_FILES:
+        for record in _jsonl(path):
+            fingerprint = _fingerprint(record)
+            assert fingerprint not in fingerprints, (path, fingerprints.get(fingerprint))
+            fingerprints[fingerprint] = path
+
+
+def test_label_corpus_does_not_leak_held_out_realworld_rows() -> None:
+    label_texts = {
+        _fingerprint(record)
+        for path in LABEL_FILES
+        for record in _jsonl(path)
+    }
+    held_out_texts = {
+        _fingerprint(record)
+        for path in REALWORLD_FILES
+        for record in _jsonl(path)
+    }
+    assert label_texts.isdisjoint(held_out_texts)
 
 
 def test_dedup_seed_meets_minimum_and_schema() -> None:
