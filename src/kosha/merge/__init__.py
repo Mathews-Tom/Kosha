@@ -24,6 +24,12 @@ from kosha.merge.create import (
     source_citation,
     write_concept,
 )
+from kosha.merge.lineage import (
+    ClaimLineageEntry,
+    claim_chain,
+    concept_history,
+    contested_by,
+)
 from kosha.merge.reconstruct import (
     EditDriftError,
     assert_no_drift,
@@ -41,6 +47,7 @@ from kosha.merge.update import (
 )
 
 __all__ = [
+    "ClaimLineageEntry",
     "ClaimTargeter",
     "EditDriftError",
     "GenerationClaimTargeter",
@@ -48,7 +55,10 @@ __all__ = [
     "apply_decision",
     "assert_no_drift",
     "build_targeting_prompt",
+    "claim_chain",
     "claims_from_draft",
+    "concept_history",
+    "contested_by",
     "create_concept",
     "current_claims",
     "is_reconstructable",
