@@ -1,0 +1,36 @@
+name: "Kosha Validate"
+description: "Check an OKF knowledge bundle for v0.1 conformance with kosha validate."
+author: "Kosha"
+branding:
+  icon: "check-circle"
+  color: "green"
+
+inputs:
+  bundle-path:
+    description: "Path to the OKF bundle directory to validate, relative to the repository root."
+    required: true
+  version:
+    description: "Pinned kosha-okf PyPI version to install. Defaults to the latest published release."
+    required: false
+    default: ""
+  extra-args:
+    description: "Additional arguments passed through to `kosha validate` (e.g. --json), for consumers pinned to a version that supports them."
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v8.2.0
+      with:
+        enable-cache: true
+
+    - name: Run kosha validate
+      shell: bash
+      run: |
+        package="kosha-okf"
+        if [ -n "${{ inputs.version }}" ]; then
+          package="kosha-okf==${{ inputs.version }}"
+        fi
+        uvx --from "$package" kosha validate "${{ inputs.bundle-path }}" ${{ inputs.extra-args }}
