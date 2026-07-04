@@ -9,13 +9,13 @@
 
 > Kosha (Sanskrit: कोश, pronounced *koh-shah*) — a traditional term for a treasury or lexicon: a curated vessel of knowledge.
 
-Kosha is a **verifiable, auditable maintenance layer for [OKF](https://openknowledgeformat.com) knowledge bundles**. It keeps an organization's knowledge coherent as it grows and gives connected agents — Claude, Gemini, a local model — a curated corpus to answer from, with a guarantee a freeform agent cannot offer: **knowledge is never silently overwritten, and every change is replayable.**
+Kosha is a **verifiable, auditable maintenance layer for [OKF](https://openknowledgeformat.com) knowledge bundles**. It keeps an organization's knowledge coherent as it grows and gives connected agents — Claude, Gemini, a local model — a curated corpus to answer from, with a machine-verifiable governance guarantee: **knowledge is never silently overwritten, and every change is replayable.**
 
 What sets it apart is enforced in code, not asked of a model:
 
 1. **No silent overwrites, by construction.** Updates *supersede* prior claims — append-only, content-addressed — instead of editing prose in place; `assert_no_silent_overwrite` makes the guarantee checkable and the full claim lineage reconstructable.
 2. **A replayable audit trail.** Every ingest lands on its own Git branch as a reviewable commit — deduplicated, cross-linked, contradiction-flagged — and nothing reaches `main` without a human merge.
-3. **Traversal, not grep.** A connected agent reads through deterministic traversal tools (table of contents → frontmatter → the minimal concept set) and *cannot* silently fall back to keyword search across the file tree.
+3. **Traversal-first consumption.** The MCP server exposes deterministic traversal tools (table of contents → frontmatter → the minimal concept set) and no raw-text search endpoint. File-based fallbacks provide the same traversal instructions, but a host agent with generic filesystem tools is not sandboxed by Kosha today.
 
 The unit Kosha produces is a **conformant OKF bundle**: a directory of Markdown concepts plus `index.md`/`log.md`, portable and tool-neutral by construction. Delete Kosha and the bundle still works in any editor or agent.
 
@@ -70,7 +70,7 @@ flowchart LR
     GIT -. "embedding index (derived)" .-> RES
 ```
 
-The retrieval win is **progressive disclosure with an embedding jump**: a consumer pays tokens for a table of contents plus one or two leaf concepts — not the corpus — and the embedding jump keeps wall-clock latency competitive with RAG.
+On the deterministic reference benchmark, progressive disclosure with an embedding jump pays tokens for a table of contents plus one or two leaf concepts — not the corpus — while keeping wall-clock latency competitive with RAG on that local corpus.
 
 Design rationale, market position, and risks live in [`docs/overview.md`](docs/overview.md) and [`docs/system_design.md`](docs/system_design.md).
 
@@ -148,7 +148,7 @@ Point Kosha at a source folder. It runs the full maintenance loop behind a **pla
 
 ### Consume — `kosha-mcp`
 
-A FastMCP server exposes exactly five traversal tools and **no raw-text search**, so a connected agent structurally cannot grep the corpus:
+A FastMCP server exposes exactly five traversal tools and **no raw-text search endpoint**. In an MCP client that receives only that server's tools for bundle access, the knowledge interface is traversal-first:
 
 | Tool | Purpose |
 |---|---|
