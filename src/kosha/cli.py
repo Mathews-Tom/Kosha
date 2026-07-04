@@ -306,6 +306,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Source authority rank for contradiction resolution (default: 0).",
     )
+    ingest_parser.add_argument(
+        "--reviewer",
+        type=str,
+        default=None,
+        help=(
+            "Approving reviewer's identity (e.g. 'Jane Doe <jane@example.com>'), "
+            "recorded as a Reviewed-by trailer on the commit."
+        ),
+    )
     return parser
 
 
@@ -342,15 +351,20 @@ def _run_ingest(args: argparse.Namespace) -> int:
         print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
         return 2
     reader = input if sys.stdin.isatty() and not args.yes else None
-    result = ingest(
-        args.source,
-        args.bundle,
-        asof=datetime.now(UTC),
-        source_authority=args.authority,
-        dry_run=args.dry_run,
-        assume_yes=args.yes,
-        reader=reader,
-    )
+    try:
+        result = ingest(
+            args.source,
+            args.bundle,
+            asof=datetime.now(UTC),
+            source_authority=args.authority,
+            dry_run=args.dry_run,
+            assume_yes=args.yes,
+            reader=reader,
+            reviewer=args.reviewer,
+        )
+    except ValueError as exc:
+        print(f"kosha: invalid --reviewer: {exc}", file=sys.stderr)
+        return 2
     print(render_plan(result.plan))
     print()
     print(render_routing(result.routing))

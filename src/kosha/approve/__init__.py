@@ -21,7 +21,13 @@ from kosha.approve.autonomy import (
     route_change,
     route_plan,
 )
-from kosha.approve.decision import Decision, Reader, parse_decision, request_decision
+from kosha.approve.decision import (
+    Decision,
+    Reader,
+    normalize_reviewer,
+    parse_decision,
+    request_decision,
+)
 from kosha.approve.render import render_plan
 
 __all__ = [
@@ -35,6 +41,7 @@ __all__ = [
     "PlanRouting",
     "Reader",
     "evaluate_autonomy_confidence",
+    "normalize_reviewer",
     "parse_decision",
     "render_plan",
     "render_routing",

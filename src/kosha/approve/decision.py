@@ -58,3 +58,22 @@ def request_decision(
         if decision is not None:
             return decision
     return Decision.REJECT
+
+
+def normalize_reviewer(raw: str | None) -> str | None:
+    """Normalize a supplied reviewer identity for commit-trailer attribution.
+
+    Blank input is treated as "no reviewer supplied" (``None``), not an error,
+    since the flag/env var is optional. A newline is rejected rather than
+    stripped: the identity lands verbatim in a commit-message trailer, so a
+    silently stripped newline would hide, rather than block, an attempt to
+    forge additional trailer lines from untrusted input.
+    """
+    if raw is None:
+        return None
+    cleaned = raw.strip()
+    if not cleaned:
+        return None
+    if "\n" in cleaned or "\r" in cleaned:
+        raise ValueError("reviewer identity must not contain newlines")
+    return cleaned
