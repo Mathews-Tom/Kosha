@@ -105,6 +105,7 @@ def test_render_report_has_table_kill_criterion_and_verdict(tmp_path: Path) -> N
     assert "tuned-rag" in document
     assert "prompt-only" in document
     assert "## Drift across sequential ingests" in document
+    assert "Fidelity targeter:" in document
     assert "Knowledge-integrity safety" in document
     assert KILL_CRITERION in document
     assert report.verdict in {"GO", "NO-GO"}

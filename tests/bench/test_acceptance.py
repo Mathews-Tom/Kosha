@@ -33,6 +33,7 @@ from kosha.dedup import LexicalAdjudicator
 from kosha.eval.dedup import DuplicateRateReport, evaluate_duplicate_rate
 from kosha.okf import load_bundle
 from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
+from kosha.providers.base import Generation, Usage
 
 ROOT = Path(__file__).resolve().parents[2]
 NORTHWIND = ROOT / "bundles" / "northwind"
@@ -56,6 +57,16 @@ def _strategy(
         keyword_recall=recall,
         answered_fraction=1.0,
     )
+
+
+class _FirstClaimProvider:
+    @property
+    def name(self) -> str:
+        return "first-claim"
+
+    def generate(self, query: str, context: str) -> Generation:
+        del query, context
+        return Generation("1", Usage(prompt_tokens=1, completion_tokens=1))
 
 
 def _bench(*results: StrategyResult) -> BenchReport:
@@ -218,6 +229,18 @@ def test_measure_fidelity_holds_across_20_ingests(tmp_path: Path) -> None:
     assert report.conformant
     assert report.latest_reflected
     assert report.ok
+
+
+def test_measure_fidelity_runs_with_generation_targeter(tmp_path: Path) -> None:
+    report = measure_fidelity(
+        tmp_path,
+        ingests=20,
+        generation_provider=_FirstClaimProvider(),
+    )
+
+    assert report.ok
+    assert report.targeter_name == "generation:first-claim"
+    assert "generation:first-claim" in fidelity_criterion(report).evidence
 
 
 def test_measure_fidelity_manages_its_own_scratch_dir() -> None:
