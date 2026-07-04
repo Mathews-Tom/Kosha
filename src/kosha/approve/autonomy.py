@@ -18,6 +18,7 @@ tunable and a regulated bundle can ``force_block`` everything (§4.5).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import IntEnum
 
@@ -90,6 +91,62 @@ class PlanRouting:
     def blocked(self) -> list[ChangeRouting]:
         """The routed changes that landed in the ``BLOCK`` lane."""
         return [route for route in self.routes if route.lane is Lane.BLOCK]
+
+
+
+@dataclass(frozen=True)
+class AutonomyEvalCase:
+    """A live-decision-style plan with a reviewer safety label."""
+
+    plan: ChangePlan
+    safe_to_auto_apply: bool
+
+
+@dataclass(frozen=True)
+class AutonomyEvalReport:
+    """Autonomy validation metrics for approval-fatigue risk."""
+
+    case_count: int
+    auto_apply_count: int
+    false_auto_apply_count: int
+    review_count: int
+    route_count: int
+
+    @property
+    def false_auto_apply_rate(self) -> float:
+        return self.false_auto_apply_count / self.auto_apply_count if self.auto_apply_count else 0.0
+
+    @property
+    def review_load(self) -> float:
+        return self.review_count / self.route_count if self.route_count else 0.0
+
+
+def evaluate_autonomy_confidence(
+    cases: Iterable[AutonomyEvalCase],
+    thresholds: AutonomyThresholds = DEFAULT_THRESHOLDS,
+) -> AutonomyEvalReport:
+    """Measure false auto-apply and human review load over labeled plans."""
+    case_count = auto_apply_count = false_auto_apply_count = review_count = route_count = 0
+    for case in cases:
+        case_count += 1
+        routing = route_plan(case.plan, thresholds)
+        route_count += len(routing.routes)
+        auto_applies = routing.lane is Lane.AUTO
+        if auto_applies:
+            auto_apply_count += 1
+            false_auto_apply_count += int(not case.safe_to_auto_apply)
+        if routing.flagged:
+            review_count += len(routing.routes) or 1
+            route_count += 0 if routing.routes else 1
+        else:
+            review_count += sum(1 for route in routing.routes if route.lane is not Lane.AUTO)
+    return AutonomyEvalReport(
+        case_count=case_count,
+        auto_apply_count=auto_apply_count,
+        false_auto_apply_count=false_auto_apply_count,
+        review_count=review_count,
+        route_count=route_count,
+    )
 
 
 def route_change(
