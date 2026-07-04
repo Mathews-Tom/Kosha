@@ -77,6 +77,14 @@ class Claim(BaseModel):
     (``effective_to is None`` means currently in force). The contradiction
     resolution policy reads this window to supersede an expired claim by a
     later-effective one, retaining the old with its window closed (§3.2, §4.3.1).
+
+    ``reviewer`` records the approving identity a claim was minted or superseded
+    under, when known (set behind an explicit approval gate; ``None`` for a claim
+    hydrated from a disk-loaded body with no attributable reviewer). ``contradicts``
+    chains a ``contradicted`` claim back to the claim it lost against when the
+    resolution policy did not already link the two via ``supersedes`` — the case
+    where the incumbent claim stays current and the challenger is retained, not
+    replaced (M7 claim lineage; system_design §4.3.1).
     """
 
     claim_id: str
@@ -88,6 +96,8 @@ class Claim(BaseModel):
     supersedes: str | None = None
     effective_from: datetime | None = None
     effective_to: datetime | None = None
+    reviewer: str | None = None
+    contradicts: str | None = None
 
 
 class Concept(BaseModel):
