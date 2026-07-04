@@ -29,6 +29,7 @@ from kosha.mcp.service import (
     resolve_bundle_access,
     resolve_clearance,
 )
+from kosha.server.registry import BundleRegistration, BundleRegistry
 
 _INSTRUCTIONS = (
     "Answer from this OKF bundle by traversal, never by guessing or grepping. "
@@ -39,73 +40,94 @@ _INSTRUCTIONS = (
 
 
 def build_server(
-    service: KoshaKnowledgeService, *, name: str = "kosha-knowledge"
+    registry: BundleRegistry | KoshaKnowledgeService, *, name: str = "kosha-knowledge"
 ) -> FastMCP:
-    """Build a FastMCP server whose only knowledge tools traverse ``service``.
+    """Build a FastMCP server over a single service or explicit-bundle registry."""
+    if isinstance(registry, KoshaKnowledgeService):
+        return _build_single_service_server(registry, name=name)
+    return _build_registry_server(registry, name=name)
 
-    Each tool is a one-line delegation to the service so the deterministic
-    traversal logic has a single home; the server adds only the MCP protocol.
-    """
+
+def _build_registry_server(registry: BundleRegistry, *, name: str) -> FastMCP:
+    """Build a FastMCP server whose tools require an explicit ``bundle_id``."""
+    server = FastMCP(name, instructions=_INSTRUCTIONS)
+
+    @server.tool()
+    def list_bundles() -> dict[str, list[str]]:
+        """List bundle ids visible to the caller's configured clearance."""
+        return {"bundles": registry.authorized_bundle_ids()}
+
+    @server.tool()
+    def list_index(bundle_id: str, scope: str = "") -> IndexView:
+        """List a bundle directory's direct contents (subdirectories + concepts)."""
+        return registry.require_service(bundle_id).list_index(scope)
+
+    @server.tool()
+    def read_frontmatter(bundle_id: str, concept_id: str) -> FrontmatterView:
+        """Read a concept's frontmatter without its body."""
+        return registry.require_service(bundle_id).read_frontmatter(concept_id)
+
+    @server.tool()
+    def load_concept(
+        bundle_id: str, concept_id: str, asof: str | None = None
+    ) -> ConceptView:
+        """Load a concept's body, showing only the claims currently in force."""
+        return registry.require_service(bundle_id).load_concept(concept_id, asof=asof)
+
+    @server.tool()
+    def find_concepts(bundle_id: str, query: str, k: int = 3) -> FindView:
+        """Jump to concepts within one addressed bundle, never across bundles."""
+        return registry.require_service(bundle_id).find_concepts(query, k)
+
+    @server.tool()
+    def follow_links(bundle_id: str, concept_id: str) -> LinksView:
+        """List a concept's links and backlinks so you can traverse the graph."""
+        return registry.require_service(bundle_id).follow_links(concept_id)
+
+    @server.tool()
+    def claim_history(
+        bundle_id: str, concept_id: str, claim_id: str | None = None
+    ) -> ClaimHistoryView:
+        """Show a concept's claim lineage: full audit trail, or one claim's chain."""
+        return registry.require_service(bundle_id).claim_history(concept_id, claim_id)
+
+    return server
+
+
+def _build_single_service_server(
+    service: KoshaKnowledgeService, *, name: str
+) -> FastMCP:
+    """Build the legacy single-bundle in-process server used by existing tests."""
     server = FastMCP(name, instructions=_INSTRUCTIONS)
 
     @server.tool()
     def list_index(scope: str = "") -> IndexView:
-        """List a bundle directory's direct contents (subdirectories + concepts).
-
-        Pass an empty ``scope`` for the bundle root; descend by passing a
-        subdirectory path. This is the progressive-disclosure map — read it before
-        opening any concept.
-        """
+        """List a bundle directory's direct contents (subdirectories + concepts)."""
         return service.list_index(scope)
 
     @server.tool()
     def read_frontmatter(concept_id: str) -> FrontmatterView:
-        """Read a concept's frontmatter (type, description, dates) without its body.
-
-        The cheap peek used to decide whether a candidate concept is worth a full
-        load_concept.
-        """
+        """Read a concept's frontmatter without its body."""
         return service.read_frontmatter(concept_id)
 
     @server.tool()
     def load_concept(concept_id: str, asof: str | None = None) -> ConceptView:
-        """Load a concept's body, showing only the claims currently in force.
-
-        An expired claim is hidden by default; pass an ISO ``asof`` timestamp to
-        read the historical view valid at that instant. Load a concept only after
-        read_frontmatter says it is relevant.
-        """
+        """Load a concept's body, showing only the claims currently in force."""
         return service.load_concept(concept_id, asof=asof)
 
     @server.tool()
     def find_concepts(query: str, k: int = 3) -> FindView:
-        """Jump to the concepts most relevant to a question (embedding search).
-
-        Returns ranked concept ids with descriptions — not bodies. Start here, then
-        read_frontmatter and load_concept the candidates worth reading. This is a
-        jump near the answer, not a raw-text search of the corpus.
-        """
+        """Jump to concepts within this bundle, never raw-searching the corpus."""
         return service.find_concepts(query, k)
 
     @server.tool()
     def follow_links(concept_id: str) -> LinksView:
-        """List a concept's links and backlinks so you can traverse the graph.
-
-        Use it to expand from a loaded concept to its related concepts; load only
-        the neighbors you actually need.
-        """
+        """List a concept's links and backlinks so you can traverse the graph."""
         return service.follow_links(concept_id)
 
     @server.tool()
     def claim_history(concept_id: str, claim_id: str | None = None) -> ClaimHistoryView:
-        """Show a concept's claim lineage: full audit trail, or one claim's chain.
-
-        Omit ``claim_id`` for the concept's whole claim history (current,
-        superseded, and contradicted claims, chronological). Pass a specific
-        ``claim_id`` to see just that claim's supersede chain plus the claims
-        rejected against it — what superseded it, when, from which source, and
-        under which approver identity.
-        """
+        """Show a concept's claim lineage: full audit trail, or one claim's chain."""
         return service.claim_history(concept_id, claim_id)
 
     return server
@@ -135,4 +157,4 @@ def main() -> None:
         bundle_access=resolve_bundle_access(os.environ),
         clearance=resolve_clearance(os.environ),
     )
-    build_server(service).run()
+    build_server(BundleRegistry([BundleRegistration(bundle_id="default", service=service)])).run()
