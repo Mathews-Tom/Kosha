@@ -107,7 +107,7 @@ class LexicalAdjudicator:
         warnings = granularity_warnings(draft_text)
         if warnings:
             return Adjudication(Verdict.SPLIT, f"granularity: {warnings[0]}")
-        overlap = _jaccard(draft_text, candidate_text)
+        overlap = jaccard_overlap(draft_text, candidate_text)
         if overlap >= self._same_threshold:
             return Adjudication(
                 Verdict.SAME, f"jaccard {overlap:.3f} >= {self._same_threshold:.2f}"
@@ -124,7 +124,7 @@ class LexicalAdjudicator:
             return Selection(None, Verdict.SPLIT, f"granularity: {warnings[0]}")
         if not candidates:
             return Selection(None, Verdict.DIFFERENT, "no candidates")
-        scored = [(c, _jaccard(draft_text, c.text)) for c in candidates]
+        scored = [(c, jaccard_overlap(draft_text, c.text)) for c in candidates]
         best, overlap = max(scored, key=lambda item: item[1])
         if overlap >= self._same_threshold:
             return Selection(
@@ -239,7 +239,7 @@ def parse_selection(
     return Selection(None, Verdict.DIFFERENT, f"{name}: {text.strip()[:60]} -> create")
 
 
-def _jaccard(a: str, b: str) -> float:
+def jaccard_overlap(a: str, b: str) -> float:
     set_a, set_b = set(tokenize(a)), set(tokenize(b))
     union = set_a | set_b
     if not union:

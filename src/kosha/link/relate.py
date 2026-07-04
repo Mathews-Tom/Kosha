@@ -75,12 +75,12 @@ class LexicalRelator:
 
     def relate(self, source: Concept, candidates: Sequence[Concept]) -> list[str]:
         scored: list[tuple[float, str]] = []
-        source_terms = set(tokenize(_concept_text(source)))
+        source_terms = set(tokenize(concept_text(source)))
         source_tags = {tag.lower() for tag in source.frontmatter.tags}
         for candidate in candidates:
             if candidate.concept_id == source.concept_id:
                 continue
-            score = _overlap(source_terms, source_tags, candidate)
+            score = term_overlap_score(source_terms, source_tags, candidate)
             if score >= self._threshold:
                 scored.append((score, candidate.concept_id))
         scored.sort(key=lambda item: (-item[0], item[1]))
@@ -165,7 +165,7 @@ def discover_relations(bundle: Bundle, relator: Relator) -> list[Relation]:
     return relations
 
 
-def _concept_text(concept: Concept) -> str:
+def concept_text(concept: Concept) -> str:
     parts = [
         concept.frontmatter.title or "",
         concept.frontmatter.description or "",
@@ -180,8 +180,8 @@ def _candidate_line(index: int, candidate: Concept) -> str:
     return f"{index}. {label} — {description}".rstrip(" —") if description else f"{index}. {label}"
 
 
-def _overlap(source_terms: set[str], source_tags: set[str], candidate: Concept) -> float:
-    candidate_terms = set(tokenize(_concept_text(candidate)))
+def term_overlap_score(source_terms: set[str], source_tags: set[str], candidate: Concept) -> float:
+    candidate_terms = set(tokenize(concept_text(candidate)))
     union = source_terms | candidate_terms
     jaccard = len(source_terms & candidate_terms) / len(union) if union else 0.0
     candidate_tags = {tag.lower() for tag in candidate.frontmatter.tags}

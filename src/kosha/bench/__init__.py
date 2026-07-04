@@ -13,9 +13,15 @@ from __future__ import annotations
 
 from kosha.bench.calibrate import (
     Calibration,
+    SingleThresholdCalibration,
+    assert_seed_labels_path,
+    calibrate_adjudicator_threshold,
+    calibrate_relator_threshold,
+    calibrate_targeter_threshold,
     calibrate_thresholds,
     default_threshold_mismatch,
     render_calibration,
+    render_single_threshold_calibration,
 )
 from kosha.bench.grade import QueryGrade, grade_query
 from kosha.bench.labels import (
@@ -68,8 +74,13 @@ __all__ = [
     "RagStrategy",
     "RetrievalStrategy",
     "RetrievedContext",
+    "SingleThresholdCalibration",
     "StrategyResult",
     "TunedRagStrategy",
+    "assert_seed_labels_path",
+    "calibrate_adjudicator_threshold",
+    "calibrate_relator_threshold",
+    "calibrate_targeter_threshold",
     "calibrate_thresholds",
     "default_threshold_mismatch",
     "evaluate_granularity",
@@ -81,6 +92,7 @@ __all__ = [
     "load_granularity_labels",
     "render_calibration",
     "render_premise_report",
+    "render_single_threshold_calibration",
     "render_table",
     "run_benchmark",
 ]
