@@ -60,7 +60,7 @@ class LexicalClaimTargeter:
         best_id: str | None = None
         best_score = self._threshold
         for candidate in candidates:
-            score = _jaccard(statement, candidate.statement)
+            score = jaccard_overlap(statement, candidate.statement)
             if score >= best_score:
                 best_score = score
                 best_id = candidate.claim_id
@@ -158,7 +158,7 @@ def _claim(claims: Sequence[Claim], claim_id: str) -> Claim:
     raise KeyError(f"no claim {claim_id!r} in concept")
 
 
-def _jaccard(a: str, b: str) -> float:
+def jaccard_overlap(a: str, b: str) -> float:
     set_a, set_b = set(tokenize(a)), set(tokenize(b))
     union = set_a | set_b
     if not union:

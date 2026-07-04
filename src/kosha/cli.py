@@ -20,6 +20,10 @@ from pathlib import Path
 from kosha import __version__
 from kosha.approve import render_plan, render_routing
 from kosha.bench import (
+    assert_seed_labels_path,
+    calibrate_adjudicator_threshold,
+    calibrate_relator_threshold,
+    calibrate_targeter_threshold,
     calibrate_thresholds,
     default_threshold_mismatch,
     evaluate_granularity,
@@ -30,6 +34,7 @@ from kosha.bench import (
     load_granularity_labels,
     render_calibration,
     render_premise_report,
+    render_single_threshold_calibration,
     render_table,
     run_benchmark,
 )
@@ -438,15 +443,32 @@ def _run_bench_realworld(args: argparse.Namespace) -> int:
 
 
 def _run_calibrate(args: argparse.Namespace) -> int:
-    """Fit the dedup thresholds to the configured embedding on the seed labels."""
+    """Fit every decision threshold to the configured providers on the seed labels."""
     if not args.labels.is_file():
         print(f"kosha: not a labels file: {args.labels}", file=sys.stderr)
         return 2
+    for path in (args.labels, _MERGE_LABELS, _RELATE_LABELS):
+        try:
+            assert_seed_labels_path(path)
+        except ValueError as error:
+            print(f"kosha: {error}", file=sys.stderr)
+            return 2
     pairs = load_dedup_pairs(args.labels)
     calibration = calibrate_thresholds(
         pairs, resolve_embedding_provider(), margin=args.margin
     )
     print(render_calibration(calibration))
+    print(render_single_threshold_calibration(calibrate_adjudicator_threshold(pairs)))
+    print(
+        render_single_threshold_calibration(
+            calibrate_targeter_threshold(load_merge_cases(_MERGE_LABELS))
+        )
+    )
+    print(
+        render_single_threshold_calibration(
+            calibrate_relator_threshold(load_relate_cases(_RELATE_LABELS))
+        )
+    )
     return 0
 
 
