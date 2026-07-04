@@ -289,7 +289,11 @@ def to_json(report: ComplianceReport) -> dict[str, Any]:
 
 
 def to_markdown(report: ComplianceReport) -> str:
-    """Render ``report`` as a human-readable Markdown compliance summary."""
+    """Render ``report`` as a human-readable Markdown compliance summary.
+
+    A change's ``content`` (set only under ``include_source_text``) renders as
+    a fenced code block under its line, matching the JSON renderer's opt-in.
+    """
     lines = [
         f"# Compliance export — {report.bundle_root}",
         "",
@@ -317,6 +321,10 @@ def to_markdown(report: ComplianceReport) -> str:
             if change.contradiction and change.contradiction != "none":
                 detail += f" contradiction={change.contradiction}"
             lines.append(f"  - {change.kind} {change.path} [{detail}]")
+            if change.content is not None:
+                lines.append("    ```")
+                lines.extend(f"    {line}" for line in change.content.splitlines())
+                lines.append("    ```")
         lines.append("")
     if report.validation.findings:
         lines.append("## Validation findings")
