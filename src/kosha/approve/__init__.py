@@ -28,7 +28,8 @@ from kosha.approve.decision import (
     parse_decision,
     request_decision,
 )
-from kosha.approve.render import render_plan
+from kosha.approve.itemreview import ItemReviewResult, request_item_decisions
+from kosha.approve.render import render_change_item, render_flag_item, render_plan
 
 __all__ = [
     "DEFAULT_THRESHOLDS",
@@ -37,15 +38,19 @@ __all__ = [
     "AutonomyThresholds",
     "ChangeRouting",
     "Decision",
+    "ItemReviewResult",
     "Lane",
     "PlanRouting",
     "Reader",
     "evaluate_autonomy_confidence",
     "normalize_reviewer",
     "parse_decision",
+    "render_change_item",
+    "render_flag_item",
     "render_plan",
     "render_routing",
     "request_decision",
+    "request_item_decisions",
     "route_change",
     "route_plan",
 ]

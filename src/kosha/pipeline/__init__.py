@@ -9,13 +9,15 @@ or explicit), then committed on a branch with a daily backup (system_design §4.
 
 from __future__ import annotations
 
-from kosha.pipeline.run import IngestResult, decide_plan, ingest
+from kosha.pipeline.run import IngestResult, commit_plan, commit_reviewed_plan, decide_plan, ingest
 from kosha.pipeline.writer import UpdateResult, apply_update, hydrate_claims, new_concept_id
 
 __all__ = [
     "IngestResult",
     "UpdateResult",
     "apply_update",
+    "commit_plan",
+    "commit_reviewed_plan",
     "decide_plan",
     "hydrate_claims",
     "ingest",

@@ -37,7 +37,7 @@ uv run kosha validate bundles/northwind --json
 ## `kosha ingest`
 
 ```text
-kosha ingest <source> [--bundle PATH] [--dry-run] [--yes] [--authority N] [--json]
+kosha ingest <source> [--bundle PATH] [--dry-run] [--yes | --review] [--authority N] [--json]
 ```
 
 Run the full maintenance loop on a source folder behind the **plan → approve → commit** gate: extract concepts → dedup-resolve against the bundle → merge through the claim layer → cross-link → detect contradictions → regenerate `index.md` / append `log.md` → assemble a change plan → route by graduated autonomy → write and commit on approval.
@@ -47,11 +47,12 @@ Run the full maintenance loop on a source folder behind the **plan → approve �
 | `source` | — | Source folder (Markdown) to ingest. |
 | `--bundle` | `bundles/northwind` | Target OKF bundle directory. |
 | `--dry-run` | off | Build and print the plan; write nothing, commit nothing. |
-| `--yes` | off | Approve the plan non-interactively (explicit human approval for the block lane). |
+| `--yes` | off | Approve the whole plan non-interactively (explicit human approval for the block lane). Mutually exclusive with `--review`. |
 | `--authority` | `0` | Source authority rank for contradiction resolution; higher wins, ties escalate. |
-| `--json` | off | Print the plan/routing/commit outcome as structured JSON instead of the text report. File content is never included. |
+| `--review` | off | Approve or reject each proposed change individually instead of one blanket yes/no. An escalated conflict must be acknowledged before any change commits; rejecting one withholds the whole plan. Mutually exclusive with `--yes`. |
+| `--json` | off | Print the plan/routing/commit outcome as structured JSON instead of the text report. File content is never included; under `--review`, also includes each item's `approve`/`reject` decision. |
 
-**Approval semantics.** Auto- and skim-lane plans apply under delegated autonomy. A blocked plan (contradiction, deletion/supersede of a load-bearing claim, or low-confidence dedup) requires an explicit yes: pass `--yes`, answer the interactive prompt, or — with neither — the plan is rejected default-safe (nothing is written).
+**Approval semantics.** Auto- and skim-lane plans apply under delegated autonomy. A blocked plan (contradiction, deletion/supersede of a load-bearing claim, or low-confidence dedup) requires an explicit yes: pass `--yes`, answer the interactive prompt, or — with neither — the plan is rejected default-safe (nothing is written). `--review` replaces the single yes/no with one prompt per proposed change (and per escalated conflict); without an interactive terminal to answer from, every item defaults to rejected — the same default-safe outcome as the blanket gate.
 
 ```bash
 # Preview only
@@ -59,6 +60,9 @@ uv run kosha ingest ./updates --bundle bundles/northwind --dry-run
 
 # Apply, treating the source as higher-authority than the wiki
 uv run kosha ingest ./policy-docs --bundle bundles/northwind --authority 2 --yes
+
+# Approve or reject each proposed change one at a time
+uv run kosha ingest ./policy-docs --bundle bundles/northwind --review
 ```
 
 ---

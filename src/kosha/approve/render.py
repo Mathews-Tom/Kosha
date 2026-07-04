@@ -10,7 +10,8 @@ change needs (or does not need) their attention.
 
 from __future__ import annotations
 
-from kosha.plan import ChangePlan, ContradictionState, FileChange
+from kosha.approve.autonomy import ChangeRouting
+from kosha.plan import ChangePlan, ContradictionState, FileChange, Flag
 
 
 def render_plan(plan: ChangePlan) -> str:
@@ -46,3 +47,28 @@ def _annotations(change: FileChange) -> str:
     if change.contradiction is not ContradictionState.NONE:
         parts.append(f"contradiction={change.contradiction.value}")
     return f"[{' '.join(parts)}]"
+
+
+def render_change_item(change: FileChange, route: ChangeRouting | None = None) -> str:
+    """Render one change as a standalone reviewable block (the per-item review flow).
+
+    Unlike :func:`render_plan`'s single summary line per change, this shows
+    enough context to decide on the change in isolation — path, kind, summary,
+    provenance, and (when routed) the lane and reason it was assigned, since a
+    per-item reviewer sees one change at a time rather than the whole plan.
+    """
+    lines = [f"[{change.kind.value}] {change.path}"]
+    if change.summary:
+        lines.append(f"  summary: {change.summary}")
+    lines.append(f"  {_annotations(change)}")
+    if route is not None:
+        lines.append(f"  lane={route.lane.label} ({route.reason})")
+    return "\n".join(lines)
+
+
+def render_flag_item(flag: Flag) -> str:
+    """Render one escalated conflict as a standalone reviewable block."""
+    lines = [f"[flag] {flag.concept_id}: {flag.summary}"]
+    if flag.detail:
+        lines.append(f"  {flag.detail}")
+    return "\n".join(lines)
