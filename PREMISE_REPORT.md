@@ -1,6 +1,6 @@
 # Kosha Premise-Validation Report
 
-**Verdict: GO** - no kill signal fired; Sections C-F are authorized.
+**Verdict: GO** - no deterministic local-provider kill signal fired for the reference-corpus premise check. This report predates the real-model Gate-0 NO-GO runs and does not authorize M14+ product expansion.
 
 ## Setup
 
@@ -45,4 +45,4 @@ best threshold-only accuracy 0.75 at cosine>=0.211 over 24 pairs; 6/10 ambiguous
 
 ## Decision
 
-All three kill signals: **GO**. Proceed to M5+ (producer loop), re-anchoring claims on measured token savings, retrieval quality, and coherence/governance.
+All three deterministic local-provider kill signals: **GO**. Treat this as a reproducible self-consistency result only. Later real-model Gate-0 runs returned **NO-GO**; M14+ remains halted unless a future pre-registered real-model run records a GO.

@@ -25,7 +25,7 @@ The unit Kosha produces is a **conformant OKF bundle**: a directory of Markdown 
 
 Version `0.1.0`.
 
-**MVP self-consistency gate** — runs offline with the deterministic local providers (`lexical-hash-256` embeddings, `extractive-3` generation) on the reference corpus (`bundles/northwind`); currently **passes**:
+**Deterministic self-consistency gate** — runs offline with local providers (`lexical-hash-256` embeddings, `extractive-3` generation) on the reference corpus (`bundles/northwind`); currently **passes**:
 
 | Criterion | Result |
 |---|---|
@@ -34,7 +34,9 @@ Version `0.1.0`.
 | Fidelity preserved across ≥20 sequential ingests | **PASS** — no edit-drift |
 | Contradictions resolved-or-escalated, 0 silent overwrites | **PASS** — 12/12 handled |
 
-These figures are a rigorous self-consistency test, not a real-model result; reproduce with `uv run kosha bench acceptance`.
+These figures verify deterministic mechanics, not real-model decision quality; reproduce with `uv run kosha bench acceptance`.
+
+**Real-model Gate-0 verdict** — three real-model runs returned **NO-GO** against the project's pre-registered criteria. The latest powered S2 run measured 2 embeddings × 2 generation models × 3 runs over 108 held-out contradictions and found the loop trailing prompt-only detection and safety by 0.28–0.33 on every provider cell. M14+ product expansion remains halted. See [Gate-0 status](docs/gate0-status.md).
 
 ---
 
