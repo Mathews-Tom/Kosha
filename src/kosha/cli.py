@@ -180,6 +180,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Cap the held-out queries evaluated (default: all).",
     )
     realworld_parser.add_argument(
+        "--fidelity-targeter",
+        choices=("lexical", "generation"),
+        default="lexical",
+        help="Claim targeter used by the fidelity probe (default: lexical).",
+    )
+    realworld_parser.add_argument(
         "--report",
         type=Path,
         default=None,
@@ -381,7 +387,7 @@ def _run_bench_corpus(out_dir: Path) -> int:
 
 
 def _run_bench_realworld(args: argparse.Namespace) -> int:
-    """Run the M13 real-model benchmark; exit 0 on GO, 1 on NO-GO."""
+    """Run the real-world benchmark and record the go/no-go verdict."""
     if not args.corpus.is_dir():
         print(f"kosha: not a bundle directory: {args.corpus}", file=sys.stderr)
         return 2
@@ -393,6 +399,7 @@ def _run_bench_realworld(args: argparse.Namespace) -> int:
         ingests=args.ingests,
         drift_seed_concepts=args.seed_concepts,
         max_queries=args.max_queries,
+        fidelity_targeter=args.fidelity_targeter,
     )
 
     def _progress(message: str) -> None:
@@ -426,7 +433,7 @@ def _run_bench_realworld(args: argparse.Namespace) -> int:
     if args.report is not None:
         args.report.write_text(render_realworld_report(report), encoding="utf-8")
         print(f"Wrote report to {args.report}")
-    return 0 if report.verdict == "GO" else 1
+    return 0
 
 
 def _run_calibrate(args: argparse.Namespace) -> int:

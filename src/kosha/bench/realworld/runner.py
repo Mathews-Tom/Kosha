@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from kosha.bench.acceptance import measure_fidelity
+from kosha.bench.acceptance import FidelityReport, measure_fidelity
 from kosha.bench.grade import grade_query
 from kosha.bench.queries import BenchQuery
 from kosha.bench.realworld.labels import MaintenanceCase, load_maintenance, load_queries
@@ -141,6 +141,7 @@ class DriftResult:
     fidelity_ok: bool
     seed_concepts: int
     final_concepts: int
+    fidelity_targeter: str
 
     @property
     def concepts_added(self) -> int:
@@ -181,6 +182,7 @@ class RealworldConfig:
     candidate_k: int = 6
     drift_seed_concepts: int = 150
     max_queries: int | None = None
+    fidelity_targeter: str = "lexical"
 
 
 @dataclass(frozen=True)
@@ -616,15 +618,39 @@ def _drift(
     )
     final_concepts = len(load_bundle(bundle_root).concepts)
     log(f"drift: corpus grew {len(seed_paths)} -> {final_concepts} concepts")
-    fidelity = measure_fidelity(root / "fidelity-scratch", ingests=max(config.ingests, MIN_INGESTS))
+    fidelity = _measure_configured_fidelity(
+        root / "fidelity-scratch",
+        ingests=max(config.ingests, MIN_INGESTS),
+        targeter=config.fidelity_targeter,
+        generation_provider=generation_provider,
+    )
     return DriftResult(
         ingests=config.ingests,
         accuracy_start=accuracy_start,
         accuracy_end=accuracy_end,
         fidelity_ok=fidelity.ok,
         seed_concepts=len(seed_paths),
+        fidelity_targeter=fidelity.targeter_name,
         final_concepts=final_concepts,
     )
+
+
+def _measure_configured_fidelity(
+    work_dir: Path,
+    *,
+    ingests: int,
+    targeter: str,
+    generation_provider: GenerationProvider,
+) -> FidelityReport:
+    if targeter == "lexical":
+        return measure_fidelity(work_dir, ingests=ingests)
+    if targeter == "generation":
+        return measure_fidelity(
+            work_dir,
+            ingests=ingests,
+            generation_provider=generation_provider,
+        )
+    raise ValueError("fidelity targeter must be 'lexical' or 'generation'")
 
 
 def _seed_bundle(
@@ -778,6 +804,7 @@ def render_realworld_report(report: RealworldReport) -> str:
             f"- Maintenance accuracy before growth: {report.drift.accuracy_start:.2f}",
             f"- Maintenance accuracy after growth: {report.drift.accuracy_end:.2f}",
             f"- Edit-drift fidelity held: {report.drift.fidelity_ok}",
+            f"- Fidelity targeter: `{report.drift.fidelity_targeter}`",
             "",
             "## Decision",
             "",

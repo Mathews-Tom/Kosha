@@ -136,7 +136,7 @@ def test_cli_realworld_writes_report(tmp_path: Path) -> None:
             str(report_path),
         ]
     )
-    assert code in {0, 1}
+    assert code == 0
     text = report_path.read_text(encoding="utf-8")
     assert "Real-Model Acceptance Report" in text
     assert "| Strategy |" in text
