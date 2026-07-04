@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -148,6 +149,55 @@ def test_to_markdown_reports_summary_and_per_commit_detail(tmp_path: Path) -> No
     assert "reviewers: Jane Doe <jane@example.com>" in document
     assert "feat(kosha): ingest source" in document
     assert "update policies/returns.md" in document
+
+
+def test_to_markdown_includes_source_text_only_when_requested(tmp_path: Path) -> None:
+    bundle, store = _seed_bundle(tmp_path)
+    _ingest_once(tmp_path, bundle, store, reviewer=None)
+    without_text = to_markdown(build_report(bundle))
+    assert "60 days" not in without_text
+    with_text = to_markdown(build_report(bundle, include_source_text=True))
+    assert "60 days" in with_text
+    assert "```" in with_text
+
+
+def test_build_report_surfaces_the_configured_remote(tmp_path: Path) -> None:
+    bundle, _ = _seed_bundle(tmp_path)
+    subprocess.run(
+        ["git", "-C", str(bundle), "remote", "add", "origin", "https://example.com/repo.git"],
+        check=True,
+        capture_output=True,
+    )
+    report = build_report(bundle)
+    assert report.git_remote == "https://example.com/repo.git"
+
+
+def test_build_report_reports_no_remote_when_unconfigured(tmp_path: Path) -> None:
+    bundle, _ = _seed_bundle(tmp_path)
+    report = build_report(bundle)
+    assert report.git_remote is None
+
+
+def test_build_report_parses_a_pre_m7_commit_without_bracketed_attrs(tmp_path: Path) -> None:
+    bundle, store = _seed_bundle(tmp_path)
+    (bundle / "policies" / "shipping.md").write_text(
+        "---\ntype: policy\ntitle: Shipping\n---\nShips within 3 days.\n", encoding="utf-8"
+    )
+    store.commit(
+        ["policies/shipping.md"],
+        "feat(kosha): ingest legacy\n\n- create policies/shipping.md",
+    )
+    report = build_report(bundle)
+    legacy = report.commits[-1]
+    assert legacy.is_ingest is True
+    assert legacy.source == "legacy"
+    change = legacy.changes[0]
+    assert change.path == "policies/shipping.md"
+    assert change.kind == "create"
+    assert change.lane is None
+    assert change.impact is None
+    assert change.confidence is None
+    assert change.contradiction is None
 
 
 def test_require_export_access_denies_an_uncleared_bundle() -> None:
