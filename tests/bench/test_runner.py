@@ -14,6 +14,7 @@ from kosha.bench import (
 from kosha.bench.runner import StrategyResult
 from kosha.okf import load_bundle
 from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
+from kosha.telemetry import InMemoryTelemetrySink
 
 NORTHWIND = Path(__file__).resolve().parents[2] / "bundles" / "northwind"
 
@@ -69,6 +70,24 @@ def test_by_name_rejects_unknown_strategy() -> None:
     )
     with pytest.raises(KeyError):
         report.by_name("does-not-exist")
+
+
+def test_benchmark_emits_provider_token_telemetry() -> None:
+    bundle = load_bundle(NORTHWIND)
+    sink = InMemoryTelemetrySink()
+
+    report = run_benchmark(
+        bundle,
+        LexicalEmbeddingProvider(),
+        ExtractiveGenerationProvider(),
+        telemetry_sink=sink,
+    )
+
+    assert len(sink.records) == report.query_count * len(STRATEGY_ORDER)
+    assert {record["kind"] for record in sink.records} == {"provider"}
+    assert {record["provider_name"] for record in sink.records} == {"extractive-3"}
+    assert all("total_tokens" in record for record in sink.records)
+    assert all("body" not in record and "text" not in record for record in sink.records)
 
 
 def _strip_latency(result: StrategyResult) -> tuple[str, float, float, float, float, float]:
