@@ -307,6 +307,51 @@ def test_ingest_without_a_reviewer_carries_no_trailer(tmp_path: Path) -> None:
     assert "Reviewed-by:" not in store.commit_message()
 
 
+def _secret_source(tmp_path: Path) -> Path:
+    source = tmp_path / "source-secret"
+    (source / "policies").mkdir(parents=True)
+    (source / "policies" / "returns.md").write_text(
+        "# Returns\n\n"
+        "Standard returns are accepted within 60 days of delivery. "
+        "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\n",
+        encoding="utf-8",
+    )
+    return source
+
+
+def test_secret_like_content_blocks_without_explicit_approval(tmp_path: Path) -> None:
+    bundle, store, main_sha = _seed_bundle(tmp_path)
+    result = ingest(
+        _secret_source(tmp_path),
+        bundle,
+        asof=_ASOF,
+        source_authority=10,
+        git_store=store,
+        branch="ingest/secret",
+    )
+    assert result.routing.requires_approval is True
+    assert any("secret-like content detected" in route.reason for route in result.routing.routes)
+    assert result.decision is Decision.REJECT
+    assert result.committed is False
+    assert store.current_sha("main") == main_sha
+    assert not store.branch_exists("ingest/secret")
+
+
+def test_secret_like_content_commits_only_with_explicit_approval(tmp_path: Path) -> None:
+    bundle, store, _ = _seed_bundle(tmp_path)
+    result = ingest(
+        _secret_source(tmp_path),
+        bundle,
+        asof=_ASOF,
+        source_authority=10,
+        git_store=store,
+        branch="ingest/secret-approved",
+        reader=lambda _: "y",
+    )
+    assert result.decision is Decision.APPROVE
+    assert result.committed is True
+
+
 def test_ingest_rejects_a_reviewer_identity_with_an_embedded_newline(tmp_path: Path) -> None:
     bundle, store, _ = _seed_bundle(tmp_path)
     with pytest.raises(ValueError, match="newline"):
