@@ -19,15 +19,28 @@ unchanged through the MCP protocol and the fallback path.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from datetime import datetime
+from collections.abc import Iterable, Mapping
+from datetime import UTC, datetime
 from typing import TypedDict
 
 from kosha.contradiction import effective_claims
 from kosha.index.embedding import EmbeddingIndex
 from kosha.indexlog.index import regenerate_index
 from kosha.merge.claims import render_claim_set
+from kosha.merge.lineage import ClaimLineageEntry, claim_chain, concept_history, contested_by
 from kosha.model import Bundle, Concept
+from kosha.pipeline.writer import hydrate_claims
+
+
+def resolve_clearance(env: Mapping[str, str]) -> frozenset[str]:
+    """Parse the caller's clearance labels from ``KOSHA_CLEARANCE`` (comma-separated)."""
+    raw = env.get("KOSHA_CLEARANCE", "")
+    return frozenset(item.strip() for item in raw.split(",") if item.strip())
+
+
+def resolve_bundle_access(env: Mapping[str, str]) -> str | None:
+    """Parse the bundle's required access label from ``KOSHA_BUNDLE_ACCESS``."""
+    return env.get("KOSHA_BUNDLE_ACCESS", "").strip() or None
 
 
 class IndexEntryView(TypedDict):
@@ -106,6 +119,36 @@ class LinksView(TypedDict):
     concept_id: str
     out_links: list[LinkView]
     backlinks: list[LinkView]
+
+
+class ClaimLineageEntryView(TypedDict):
+    """One claim's provenance, as returned by ``claim_history``."""
+
+    claim_id: str
+    statement: str
+    status: str
+    source_id: str
+    asserted_at: str
+    reviewer: str | None
+    supersedes: str | None
+    contradicts: str | None
+    citations: list[str]
+    effective_from: str | None
+    effective_to: str | None
+
+
+class ClaimHistoryView(TypedDict):
+    """The lineage returned by ``claim_history``.
+
+    ``entries`` is the whole concept's claim history (``claim_id=None``) or the
+    single supersede chain ``claim_id`` belongs to; ``contested_by`` lists the
+    claims rejected specifically against ``claim_id`` (empty when unscoped).
+    """
+
+    concept_id: str
+    claim_id: str | None
+    entries: list[ClaimLineageEntryView]
+    contested_by: list[ClaimLineageEntryView]
 
 
 class ConceptNotFoundError(KeyError):
@@ -265,6 +308,39 @@ class KoshaKnowledgeService:
             "backlinks": backlinks,
         }
 
+    def claim_history(self, concept_id: str, claim_id: str | None = None) -> ClaimHistoryView:
+        """Return a concept's claim lineage: full audit trail, or one claim's chain.
+
+        Pass no ``claim_id`` for the whole concept's claim history — current,
+        superseded, and contradicted claims alike, chronological — the browsing
+        view. Pass a specific ``claim_id`` to get just that claim's supersede
+        chain (oldest to newest) plus the claims rejected against it, answering
+        "what superseded this claim, when, from which source, and under which
+        approver identity." Raises :class:`KeyError` when ``claim_id`` is given
+        but not present on the concept.
+
+        A concept loaded fresh from disk carries no tracked claims; this
+        hydrates them from the body first (one current claim per paragraph, no
+        prior history to reconstruct) so the tool is never trivially empty for a
+        served bundle — the same fallback :meth:`load_concept` relies on for its
+        temporal filter.
+        """
+        self._require_access()
+        concept = hydrate_claims(self._require_concept(concept_id), asserted_at=datetime.now(UTC))
+        claims = concept.claims
+        contested: list[ClaimLineageEntry] = []
+        if claim_id is None:
+            entries = concept_history(claims)
+        else:
+            entries = claim_chain(claims, claim_id)
+            contested = contested_by(claims, claim_id)
+        return {
+            "concept_id": concept_id,
+            "claim_id": claim_id,
+            "entries": [_claim_view(entry) for entry in entries],
+            "contested_by": [_claim_view(entry) for entry in contested],
+        }
+
     def _link_view(self, target_id: str) -> LinkView:
         target = self._bundle.concepts.get(target_id)
         return {
@@ -299,3 +375,19 @@ def _parse_asof(value: str | None) -> datetime | None:
             f"asof {value!r} must be timezone-aware (e.g. 2025-06-01T00:00:00+00:00)"
         )
     return moment
+
+
+def _claim_view(entry: ClaimLineageEntry) -> ClaimLineageEntryView:
+    return {
+        "claim_id": entry.claim_id,
+        "statement": entry.statement,
+        "status": entry.status.value,
+        "source_id": entry.source_id,
+        "asserted_at": entry.asserted_at.isoformat(),
+        "reviewer": entry.reviewer,
+        "supersedes": entry.supersedes,
+        "contradicts": entry.contradicts,
+        "citations": list(entry.citations),
+        "effective_from": _iso(entry.effective_from),
+        "effective_to": _iso(entry.effective_to),
+    }
