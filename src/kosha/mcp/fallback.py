@@ -1,8 +1,8 @@
 """Non-MCP consumer fallback: the traversal protocol as plain instructions.
 
-When an agent cannot reach the Kosha MCP server, it must still consume the bundle
-by *traversal*, never by grepping (system_design §6: "skill + AGENTS.md fragment
-(fallbacks)"; §1 "consumer cannot silently degrade"). This module is the single
+When an agent cannot reach the Kosha MCP server, it can still consume the bundle
+by *traversal* rather than ad hoc file search (system_design §6: "skill + AGENTS.md
+fragment (fallbacks)"). This module is the single
 source of truth for that fallback contract: :func:`render_fallback_fragment`
 produces the paste-in ``AGENTS.md`` section and :func:`render_consumer_skill`
 produces the companion ``SKILL.md``. The committed ``consumer/`` artifacts are

@@ -7,8 +7,8 @@ FastMCP server (:mod:`kosha.mcp.server`) is a thin protocol shell over these
 methods.
 
 The service exposes only *traversal* and *jump* operations — never a raw-text
-search — so a connected agent cannot grep the corpus (system_design §1 "consumer
-cannot silently degrade", §7.1). Retrieval is the hybrid path: an embedding *jump*
+search endpoint — so the served MCP knowledge interface is traversal-first
+(system_design §1, §7.1). Retrieval is the hybrid path: an embedding *jump*
 (:meth:`find_concepts`) lands near the answer, then structured *traversal*
 (:meth:`list_index`, :meth:`read_frontmatter`, :meth:`load_concept`,
 :meth:`follow_links`) expands and verifies, loading only the relevant concept set.

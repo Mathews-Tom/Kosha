@@ -1,7 +1,7 @@
 [project]
 name = "kosha-okf"
 version = "0.1.0"
-description = "Self-maintaining OKF knowledge engine — curated knowledge, kept alive."
+description = "Auditable OKF governance toolkit — curated knowledge, kept alive."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"

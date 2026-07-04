@@ -2,9 +2,9 @@
 
 A thin adapter (system_design §1 "deterministic spine, isolated surfaces"): it
 registers the bundle-traversal operations of :class:`KoshaKnowledgeService` as MCP
-tools and delegates straight to them. The exposed tool set is *exactly* the
-traversal/jump surface (system_design §4.4) — there is no raw-text search tool, so
-a connected agent cannot grep the corpus (§1, §7.1).
+tools and delegates straight to them. The exposed MCP tool set is the
+traversal/jump surface (system_design §4.4) and deliberately has no raw-text search
+tool. Host-level filesystem sandboxing is a separate serving boundary.
 
 Importing this module requires the optional ``mcp`` dependency (``kosha-okf[mcp]``);
 the pure service in :mod:`kosha.mcp.service` does not.
