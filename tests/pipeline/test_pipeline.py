@@ -274,3 +274,49 @@ def test_ingest_commits_an_approved_plan_on_a_branch(tmp_path: Path) -> None:
     assert "policies/returns.md" in store.tracked_files()
     assert store.current_sha("main") == main_sha  # main never moved
     assert store.tag_exists("backup/2026-06-28")
+
+
+def test_ingest_with_a_reviewer_records_a_reviewed_by_trailer(tmp_path: Path) -> None:
+    bundle, store, _ = _seed_bundle(tmp_path)
+    result = ingest(
+        _policy_update_source(tmp_path),
+        bundle,
+        asof=_ASOF,
+        source_authority=10,
+        git_store=store,
+        branch="ingest/reviewed",
+        reviewer="Jane Doe <jane@example.com>",
+    )
+    assert result.committed is True
+    assert result.reviewer == "Jane Doe <jane@example.com>"
+    assert "Reviewed-by: Jane Doe <jane@example.com>" in store.commit_message()
+
+
+def test_ingest_without_a_reviewer_carries_no_trailer(tmp_path: Path) -> None:
+    bundle, store, _ = _seed_bundle(tmp_path)
+    result = ingest(
+        _policy_update_source(tmp_path),
+        bundle,
+        asof=_ASOF,
+        source_authority=10,
+        git_store=store,
+        branch="ingest/unreviewed",
+    )
+    assert result.committed is True
+    assert result.reviewer is None
+    assert "Reviewed-by:" not in store.commit_message()
+
+
+def test_ingest_rejects_a_reviewer_identity_with_an_embedded_newline(tmp_path: Path) -> None:
+    bundle, store, _ = _seed_bundle(tmp_path)
+    with pytest.raises(ValueError, match="newline"):
+        ingest(
+            _policy_update_source(tmp_path),
+            bundle,
+            asof=_ASOF,
+            source_authority=10,
+            git_store=store,
+            branch="ingest/forged",
+            reviewer="Jane Doe\nReviewed-by: Forged Identity",
+        )
+    assert not store.branch_exists("ingest/forged")
