@@ -7,6 +7,7 @@ from pathlib import Path
 from kosha.bench import load_granularity_labels
 from kosha.eval import evaluate_extractor
 from kosha.providers import ExtractiveGenerationProvider
+from kosha.telemetry import InMemoryTelemetrySink
 
 ROOT = Path(__file__).resolve().parents[2]
 GRANULARITY = ROOT / "labels" / "granularity_seed.jsonl"
@@ -39,3 +40,15 @@ def test_extractor_eval_is_deterministic() -> None:
     first = evaluate_extractor(labels, ExtractiveGenerationProvider())
     second = evaluate_extractor(labels, ExtractiveGenerationProvider())
     assert first == second
+
+
+def test_extractor_eval_emits_provider_telemetry_without_label_text() -> None:
+    labels = load_granularity_labels(GRANULARITY)[:3]
+    sink = InMemoryTelemetrySink()
+
+    evaluate_extractor(labels, ExtractiveGenerationProvider(), telemetry_sink=sink)
+
+    assert len(sink.records) == len(labels)
+    assert {record["kind"] for record in sink.records} == {"provider"}
+    assert {record["provider_name"] for record in sink.records} == {"extractive-3"}
+    assert all("body" not in record and "text" not in record for record in sink.records)

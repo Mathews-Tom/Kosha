@@ -56,6 +56,7 @@ from kosha.merge import (
 )
 from kosha.model import Bundle, Claim, Source, SourceKind
 from kosha.providers.base import EmbeddingProvider, GenerationProvider
+from kosha.telemetry import TelemetrySink
 from kosha.validate import validate_bundle
 
 # Repeated-ingest duplicate rate must be exactly zero: every concept that already
@@ -410,9 +411,12 @@ def run_acceptance(
     generation_provider: GenerationProvider,
     *,
     bundle_path: str,
+    telemetry_sink: TelemetrySink | None = None,
 ) -> AcceptanceReport:
     """Measure every MVP success criterion on ``bundle`` and gate each pass/fail."""
-    bench = run_benchmark(bundle, embedding_provider, generation_provider)
+    bench = run_benchmark(
+        bundle, embedding_provider, generation_provider, telemetry_sink=telemetry_sink
+    )
     duplicates = evaluate_duplicate_rate(
         bundle, embedding_provider, adjudicator=LexicalAdjudicator()
     )

@@ -24,6 +24,7 @@ from kosha.bench import GranularityLabel
 from kosha.extract import extract_concepts
 from kosha.model import RawDoc, Source, SourceKind
 from kosha.providers.base import GenerationProvider
+from kosha.telemetry import TelemetrySink, emit_provider_call
 
 _ATOMIC = "atomic"
 
@@ -53,7 +54,10 @@ class ExtractEvalReport:
 
 
 def evaluate_extractor(
-    labels: list[GranularityLabel], provider: GenerationProvider
+    labels: list[GranularityLabel],
+    provider: GenerationProvider,
+    *,
+    telemetry_sink: TelemetrySink | None = None,
 ) -> ExtractEvalReport:
     """Grade the extractor's boundary calls against the granularity labels."""
     if not labels:
@@ -61,6 +65,11 @@ def evaluate_extractor(
     cases: list[ExtractEvalCase] = []
     correct = 0
     for label in labels:
+        emit_provider_call(
+            telemetry_sink,
+            surface="eval.extract",
+            provider_name=provider.name,
+        )
         count = len(extract_concepts(_raw_from_text(label.text), provider))
         expected_atomic = label.label == _ATOMIC
         ok = count == 1 if expected_atomic else count > 1

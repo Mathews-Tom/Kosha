@@ -63,6 +63,7 @@ from kosha.okf import load_bundle
 from kosha.pipeline import ingest
 from kosha.providers.base import EmbeddingProvider, Generation, GenerationProvider
 from kosha.providers.tokens import count_tokens
+from kosha.telemetry import TelemetrySink, TokenCost, emit_provider_call
 
 # A function mapping a maintenance case to a (action, concept_id) routing decision.
 _RouteFn = Callable[["MaintenanceCase"], tuple[str, str | None]]
@@ -261,6 +262,7 @@ def run_realworld(
     judge: ContradictionJudge | None = None,
     work_dir: Path | None = None,
     progress: _ProgressFn | None = None,
+    telemetry_sink: TelemetrySink | None = None,
 ) -> RealworldReport:
     """Run the comparisons, the safety moat test, and the drift probe; return the verdict."""
     log = progress or _noop
@@ -276,7 +278,15 @@ def run_realworld(
     log(f"embedding corpus index ({len(bundle.concepts)} concepts)")
     index = EmbeddingIndex.build(bundle, embedding_provider)
     query_results = _run_queries(
-        bundle, index, embedding_provider, generation_provider, queries, guidance, config, log
+        bundle,
+        index,
+        embedding_provider,
+        generation_provider,
+        queries,
+        guidance,
+        config,
+        log,
+        telemetry_sink,
     )
     maintenance_results = _run_maintenance(
         bundle, index, generation_provider, cases, guidance, config, loop_adjudicator,
@@ -318,6 +328,7 @@ def _run_queries(
     guidance: str,
     config: RealworldConfig,
     log: _ProgressFn,
+    telemetry_sink: TelemetrySink | None,
 ) -> tuple[QueryStrategyResult, ...]:
     hybrid = HybridStrategy(bundle, index)
     tuned_rag = TunedRagStrategy(bundle, embedding_provider)
@@ -342,6 +353,16 @@ def _run_queries(
         total_tokens: list[int] = []
         for query in queries:
             context, generation = answer(name, query)
+            emit_provider_call(
+                telemetry_sink,
+                surface=f"bench.realworld.{name}",
+                provider_name=generation_provider.name,
+                usage=TokenCost(
+                    prompt_tokens=generation.usage.prompt_tokens,
+                    completion_tokens=generation.usage.completion_tokens,
+                    total_tokens=generation.usage.total_tokens,
+                ),
+            )
             grade = grade_query(query, context, generation.text)
             concept_recall.append(grade.concept_recall)
             keyword_recall.append(grade.keyword_recall)

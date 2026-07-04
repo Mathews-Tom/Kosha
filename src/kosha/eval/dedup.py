@@ -30,6 +30,7 @@ from kosha.index import EmbeddingIndex
 from kosha.index.embedding import index_text
 from kosha.model import Bundle
 from kosha.providers.base import EmbeddingProvider
+from kosha.telemetry import TelemetrySink, emit_decision
 
 _SAME = "same"
 
@@ -80,6 +81,7 @@ def evaluate_dedup(
     *,
     adjudicator: Adjudicator,
     thresholds: Thresholds = DEFAULT_THRESHOLDS,
+    telemetry_sink: TelemetrySink | None = None,
 ) -> DedupEvalReport:
     """Score the resolver's UPDATE(=same)/CREATE(=different) calls on the pairs."""
     if not pairs:
@@ -98,6 +100,13 @@ def evaluate_dedup(
             adjudicator=adjudicator,
             thresholds=thresholds,
             k=1,
+        )
+        emit_decision(
+            telemetry_sink,
+            surface="eval.dedup",
+            outcome=decision.action.value,
+            confidence=0.5 if decision.adjudicated else 1.0,
+            provider_name=adjudicator.__class__.__name__,
         )
         predicted_same = decision.action is Action.UPDATE
         gold_same = pair.label == _SAME

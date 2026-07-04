@@ -18,6 +18,7 @@ from kosha.model import ClaimStatus, Concept, Frontmatter, Source, SourceKind
 from kosha.pipeline import decide_plan, hydrate_claims, ingest, new_concept_id
 from kosha.pipeline.writer import apply_update
 from kosha.plan import ChangeKind, ContradictionState, FileChange, Flag, build_plan
+from kosha.telemetry import InMemoryTelemetrySink
 
 _ASOF = datetime(2026, 6, 28, tzinfo=UTC)
 _JUDGE = LexicalContradictionJudge()
@@ -232,6 +233,29 @@ def test_dry_run_builds_a_plan_without_committing(tmp_path: Path) -> None:
     assert result.decision is None
     assert store.current_sha("main") == main_sha
     assert store.head_branch() == "main"
+
+
+def test_ingest_emits_route_and_decision_telemetry_without_source_body(tmp_path: Path) -> None:
+    bundle, store, _ = _seed_bundle(tmp_path)
+    sink = InMemoryTelemetrySink()
+
+    ingest(
+        _policy_update_source(tmp_path),
+        bundle,
+        asof=_ASOF,
+        source_authority=10,
+        dry_run=True,
+        git_store=store,
+        telemetry_sink=sink,
+    )
+
+    kinds = [record["kind"] for record in sink.records]
+    assert "provider" in kinds
+    assert "decision" in kinds
+    assert "route" in kinds
+    assert any(record.get("outcome") == "update" for record in sink.records)
+    assert all("confidence" in record for record in sink.records if record["kind"] == "route")
+    assert all("body" not in record and "text" not in record for record in sink.records)
 
 
 def test_ingest_commits_an_approved_plan_on_a_branch(tmp_path: Path) -> None:

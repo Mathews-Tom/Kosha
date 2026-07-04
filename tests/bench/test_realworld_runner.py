@@ -22,6 +22,7 @@ from kosha.cli import main
 from kosha.contradiction import LexicalContradictionJudge
 from kosha.dedup import LexicalAdjudicator
 from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
+from kosha.telemetry import InMemoryTelemetrySink
 
 ROOT = Path(__file__).resolve().parents[2]
 CORPUS = ROOT / "bundles" / "pydoc-stdlib"
@@ -64,6 +65,25 @@ def test_runner_produces_three_way_and_maintenance(tmp_path: Path) -> None:
     assert {r.name for r in report.safety} == {"kosha_loop", "prompt_only"}
     # The loop's reconcile guarantee never silently overwrites a prior claim.
     assert report.safety_by_name("kosha_loop").silent_overwrites == 0
+
+
+def test_realworld_runner_emits_provider_token_telemetry(tmp_path: Path) -> None:
+    sink = InMemoryTelemetrySink()
+
+    report = run_realworld(
+        _config(ingests=1),
+        LexicalEmbeddingProvider(),
+        ExtractiveGenerationProvider(),
+        adjudicator=LexicalAdjudicator(),
+        judge=LexicalContradictionJudge(),
+        work_dir=tmp_path,
+        telemetry_sink=sink,
+    )
+
+    assert len(sink.records) == report.query_count * 3
+    assert {record["kind"] for record in sink.records} == {"provider"}
+    assert all("total_tokens" in record for record in sink.records)
+    assert all("body" not in record and "text" not in record for record in sink.records)
 
 
 def test_runner_drift_grows_the_corpus(tmp_path: Path) -> None:

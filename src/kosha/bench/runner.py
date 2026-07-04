@@ -25,6 +25,7 @@ from kosha.index import EmbeddingIndex
 from kosha.model import Bundle
 from kosha.providers.base import EmbeddingProvider, GenerationProvider
 from kosha.providers.tokens import count_tokens
+from kosha.telemetry import TelemetrySink, TokenCost, emit_provider_call
 
 # Strategy display order in every table and report.
 STRATEGY_ORDER = ("hybrid", "rag", "long_context")
@@ -65,6 +66,8 @@ def run_benchmark(
     embedding_provider: EmbeddingProvider,
     generation_provider: GenerationProvider,
     queries: tuple[BenchQuery, ...] = NORTHWIND_QUERIES,
+    *,
+    telemetry_sink: TelemetrySink | None = None,
 ) -> BenchReport:
     """Benchmark hybrid / RAG / long-context over ``queries`` on ``bundle``."""
     index = EmbeddingIndex.build(bundle, embedding_provider)
@@ -74,7 +77,8 @@ def run_benchmark(
         LongContextStrategy(bundle),
     )
     results = tuple(
-        _run_strategy(strategy, generation_provider, queries) for strategy in strategies
+        _run_strategy(strategy, generation_provider, queries, telemetry_sink=telemetry_sink)
+        for strategy in strategies
     )
     return BenchReport(
         embedding_provider=embedding_provider.name,
@@ -88,6 +92,8 @@ def _run_strategy(
     strategy: RetrievalStrategy,
     generation_provider: GenerationProvider,
     queries: tuple[BenchQuery, ...],
+    *,
+    telemetry_sink: TelemetrySink | None = None,
 ) -> StrategyResult:
     context_tokens: list[int] = []
     total_tokens: list[int] = []
@@ -98,6 +104,16 @@ def _run_strategy(
         start = perf_counter()
         context = strategy.retrieve(query.question)
         generation = generation_provider.generate(query.question, context.text)
+        emit_provider_call(
+            telemetry_sink,
+            surface=f"bench.{strategy.name}",
+            provider_name=generation_provider.name,
+            usage=TokenCost(
+                prompt_tokens=generation.usage.prompt_tokens,
+                completion_tokens=generation.usage.completion_tokens,
+                total_tokens=generation.usage.total_tokens,
+            ),
+        )
         latencies.append((perf_counter() - start) * 1000.0)
         context_tokens.append(count_tokens(context.text))
         total_tokens.append(generation.usage.total_tokens)
