@@ -17,6 +17,7 @@ import urllib.request
 
 from kosha.providers.base import Generation, Usage, Vector
 from kosha.providers.tokens import count_tokens
+from kosha.security.prompt_guard import SYSTEM_GUARD, delimit_untrusted
 
 # Network read timeout (seconds) for a single provider call.
 _TIMEOUT = 60.0
@@ -37,11 +38,11 @@ def build_chat_request(
     """Return the ``(url, headers, body)`` for a chat-completions request."""
     url = f"{base_url.rstrip('/')}/chat/completions"
     messages = [
+        {"role": "system", "content": SYSTEM_GUARD},
         {
-            "role": "system",
-            "content": "Answer the question using only the provided context.",
+            "role": "user",
+            "content": f"Context:\n{delimit_untrusted(context)}\n\nQuestion: {query}",
         },
-        {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"},
     ]
     body = json.dumps({"model": model, "messages": messages}).encode("utf-8")
     return url, _headers(api_key), body
