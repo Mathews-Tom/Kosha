@@ -16,6 +16,7 @@ from kosha.providers import LexicalEmbeddingProvider
 
 NORTHWIND = Path(__file__).resolve().parents[2] / "bundles" / "northwind"
 GOLD = "policies/returns/gold-members"
+GOOD_BUNDLE = Path(__file__).resolve().parents[1] / "fixtures" / "good_bundle"
 
 
 def make_service(
@@ -64,6 +65,11 @@ def northwind_with_temporal_claims() -> Bundle:
 @pytest.fixture
 def northwind() -> Bundle:
     return load_bundle(NORTHWIND)
+
+
+@pytest.fixture
+def good_bundle() -> Bundle:
+    return load_bundle(GOOD_BUNDLE)
 
 
 @pytest.fixture
