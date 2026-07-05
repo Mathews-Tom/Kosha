@@ -26,11 +26,18 @@ from typing import Protocol
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
+from kosha.ingest.guardrails import (
+    DEFAULT_INGEST_POLICY,
+    DEFAULT_MAX_BYTES,
+    IngestPolicy,
+    build_raw_doc,
+    normalize_markdown,
+)
 from kosha.model import RawDoc, Source, SourceKind
 
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
-_DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # 10 MiB
 _READ_CHUNK_BYTES = 65536
+_DEFAULT_MAX_BYTES = DEFAULT_MAX_BYTES
 
 
 class UrlIngestError(ValueError):
@@ -112,6 +119,7 @@ def parse_html(
     url: str,
     authority_rank: int = 0,
     retrieved_at: datetime | None = None,
+    policy: IngestPolicy = DEFAULT_INGEST_POLICY,
 ) -> RawDoc:
     """Normalize ``html`` into a :class:`RawDoc` (deterministic, no network)."""
     parser = _TextExtractor()
@@ -125,7 +133,7 @@ def parse_html(
         authority_rank=authority_rank,
         retrieved_at=retrieved_at,
     )
-    return RawDoc(source=source, text=_normalize(parser.text))
+    return build_raw_doc(source=source, text=normalize_markdown(parser.text), policy=policy)
 
 
 def fetch_url(
@@ -153,6 +161,7 @@ def fetch_url(
         url=url,
         authority_rank=authority_rank,
         retrieved_at=datetime.now(UTC),
+        policy=IngestPolicy(max_bytes=max_bytes),
     )
 
 
@@ -211,7 +220,3 @@ def _read_bounded(response: _ChunkReadable, *, url: str, max_bytes: int) -> byte
         chunks.append(chunk)
 
 
-def _normalize(text: str) -> str:
-    """Collapse intra-line whitespace and drop blank lines, keeping headings."""
-    lines = (" ".join(line.split()) for line in text.splitlines())
-    return "\n".join(line for line in lines if line)
