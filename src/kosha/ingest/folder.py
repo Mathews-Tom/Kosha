@@ -12,17 +12,28 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from kosha.ingest.guardrails import (
+    DEFAULT_INGEST_POLICY,
+    IngestPolicy,
+    build_raw_doc,
+    read_text_file_bounded,
+)
 from kosha.model import RawDoc, Source, SourceKind
 
 
-def ingest_folder(root: Path, *, authority_rank: int = 0) -> list[RawDoc]:
+def ingest_folder(
+    root: Path,
+    *,
+    authority_rank: int = 0,
+    policy: IngestPolicy = DEFAULT_INGEST_POLICY,
+) -> list[RawDoc]:
     """Read every ``*.md`` under ``root`` into a deterministic list of RawDocs."""
     if not root.is_dir():
         raise NotADirectoryError(f"not a directory: {root}")
     docs: list[RawDoc] = []
     for path in sorted(root.rglob("*.md")):
         rel = path.relative_to(root).as_posix()
-        text = path.read_text(encoding="utf-8")
+        text = read_text_file_bounded(path, policy=policy)
         source = Source(
             source_id=rel,
             kind=SourceKind.MARKDOWN,
@@ -30,7 +41,7 @@ def ingest_folder(root: Path, *, authority_rank: int = 0) -> list[RawDoc]:
             title=_leading_heading(text) or path.stem,
             authority_rank=authority_rank,
         )
-        docs.append(RawDoc(source=source, text=text))
+        docs.append(build_raw_doc(source=source, text=text, policy=policy))
     return docs
 
 

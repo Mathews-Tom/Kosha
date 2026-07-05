@@ -38,10 +38,12 @@ class ClaimStatus(StrEnum):
 
 
 class SourceKind(StrEnum):
-    """Origin kind of ingested material (system_design §8.1 build cut)."""
+    """Origin kind of ingested material."""
 
     URL = "url"
     MARKDOWN = "markdown"
+    WORKSPACE_EXPORT = "workspace_export"
+    DOCUMENT = "document"
 
 
 class Frontmatter(BaseModel):

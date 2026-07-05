@@ -13,6 +13,23 @@ from kosha.model import RawDoc, Source, SourceKind
 def test_source_kind_values() -> None:
     assert SourceKind.URL == "url"
     assert SourceKind.MARKDOWN == "markdown"
+    assert SourceKind.WORKSPACE_EXPORT == "workspace_export"
+    assert SourceKind.DOCUMENT == "document"
+
+
+def test_source_kind_exhausts_known_values() -> None:
+    assert {kind.value for kind in SourceKind} == {
+        "url",
+        "markdown",
+        "workspace_export",
+        "document",
+    }
+
+
+@pytest.mark.parametrize("kind", list(SourceKind))
+def test_source_accepts_every_known_kind(kind: SourceKind) -> None:
+    source = Source(source_id="x", kind=kind, location="x")
+    assert source.kind is kind
 
 
 def test_source_defaults_authority_rank_to_zero() -> None:

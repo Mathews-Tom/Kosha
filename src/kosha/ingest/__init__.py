@@ -1,19 +1,26 @@
 """Ingest adapters: turn a source into normalized :class:`~kosha.model.RawDoc`s.
 
-Two deterministic adapters ship for the v1 build cut (system_design §8.1):
-
-* :func:`fetch_url` / :func:`parse_html` — pull and normalize an HTML page, and
-* :func:`ingest_folder` — read a local folder of Markdown source documents.
-
-DB/BigQuery adapters are deliberately out of scope (the design's Skip list).
+All adapters cross the same guarded boundary: stable ``Source`` provenance,
+bounded input size, and prompt-injection sanitization before a ``RawDoc`` reaches
+the extractor.
 """
 
 from __future__ import annotations
 
 from kosha.ingest.folder import ingest_folder
+from kosha.ingest.guardrails import (
+    DEFAULT_INGEST_POLICY,
+    IngestAdapter,
+    IngestGuardrailError,
+    IngestPolicy,
+)
 from kosha.ingest.url import fetch_url, parse_html
 
 __all__ = [
+    "DEFAULT_INGEST_POLICY",
+    "IngestAdapter",
+    "IngestGuardrailError",
+    "IngestPolicy",
     "fetch_url",
     "ingest_folder",
     "parse_html",
