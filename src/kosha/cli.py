@@ -15,14 +15,17 @@ import argparse
 import json
 import os
 import sys
+import time
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from kosha import __version__, cli_json
 from kosha.approve import (
     PlanRouting,
     Reader,
+    ReviewQueue,
     normalize_reviewer,
     render_plan,
     render_routing,
@@ -71,11 +74,13 @@ from kosha.eval import (
     load_relate_cases,
 )
 from kosha.git_store import GitStore
+from kosha.ingest.url import UrlIngestError
+from kosha.ingest.watch import ScheduledIngest, SourcePolicy
 from kosha.link import LexicalRelator
 from kosha.mcp.service import AccessDeniedError, resolve_bundle_access, resolve_clearance
 from kosha.merge import LexicalClaimTargeter
 from kosha.okf import load_bundle
-from kosha.pipeline import commit_reviewed_plan, ingest
+from kosha.pipeline import IngestResult, commit_reviewed_plan, ingest
 from kosha.plan import build_plan
 from kosha.providers import resolve_embedding_provider, resolve_generation_provider
 from kosha.recovery import (
@@ -88,6 +93,8 @@ from kosha.recovery import (
     list_backups,
 )
 from kosha.release import ReleaseError, create_release
+from kosha.server import make_http_server
+from kosha.server.registry import build_bundles_dir_registry, build_single_bundle_registry
 from kosha.validate import validate_bundle
 
 # Default golden corpus the benchmark runs against, and the seed label files.
@@ -354,8 +361,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ingest_parser.add_argument(
         "source",
-        type=Path,
-        help="Source folder (Markdown) to ingest.",
+        type=str,
+        help="Source folder (Markdown), or HTTP(S) URL when --watch is set.",
     )
     ingest_parser.add_argument(
         "--bundle",
@@ -399,9 +406,134 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     ingest_parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Run guarded scheduled re-ingest instead of a single immediate ingest.",
+    )
+    ingest_parser.add_argument(
+        "--interval-seconds",
+        type=float,
+        default=60.0,
+        help="Watch interval in seconds when --watch is set (default: 60).",
+    )
+    ingest_parser.add_argument(
+        "--runs",
+        type=int,
+        default=1,
+        help="Number of scheduled runs before exiting; 0 means run until interrupted.",
+    )
+    ingest_parser.add_argument(
+        "--url-max-bytes",
+        type=int,
+        default=10 * 1024 * 1024,
+        help="Maximum bytes accepted from each scheduled URL source.",
+    )
+    ingest_parser.add_argument(
+        "--allowed-host",
+        action="append",
+        default=[],
+        help="Allowed scheduled URL hostname; may be repeated.",
+    )
+    ingest_parser.add_argument(
+        "--review-queue",
+        type=Path,
+        default=None,
+        help="Append BLOCK-lane items to this shared review queue JSON file.",
+    )
+    ingest_parser.add_argument(
         "--json",
         action="store_true",
         help="Print the result as structured JSON instead of text.",
+    )
+    serve_parser = subparsers.add_parser(
+        "serve",
+        help="Serve traversal-only bundle access over a local HTTP/SSE boundary.",
+    )
+    source_group = serve_parser.add_mutually_exclusive_group()
+    source_group.add_argument(
+        "--bundle",
+        type=Path,
+        default=_DEFAULT_BUNDLE,
+        help="Single OKF bundle directory to serve (default: bundles/northwind).",
+    )
+    source_group.add_argument(
+        "--bundles-dir",
+        type=Path,
+        default=None,
+        help="Directory whose direct children are served as bundle ids.",
+    )
+    serve_parser.add_argument(
+        "--bundle-id",
+        type=str,
+        default="default",
+        help="Client-facing id for --bundle mode (default: default).",
+    )
+    serve_parser.add_argument(
+        "--bundle-access",
+        action="append",
+        default=[],
+        help=(
+            "Access label. In --bundle mode pass LABEL or bundle_id=LABEL; "
+            "in --bundles-dir mode pass bundle_id=LABEL. May be repeated."
+        ),
+    )
+    serve_parser.add_argument(
+        "--allow-open-bundles",
+        action="store_true",
+        help="Permit bundles without an access label in --bundles-dir mode.",
+    )
+    serve_parser.add_argument(
+        "--clearance",
+        action="append",
+        default=[],
+        help="Caller clearance label; may be repeated. Also reads KOSHA_CLEARANCE.",
+    )
+    serve_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host interface to bind (default: 127.0.0.1).",
+    )
+    serve_parser.add_argument(
+        "--allow-non-loopback",
+        action="store_true",
+        help="Allow binding the served boundary to a non-loopback host.",
+    )
+    serve_parser.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="TCP port to bind (default: 8765).",
+    )
+    serve_parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Build the server and exit without serving; intended for smoke tests.",
+    )
+    queue_parser = subparsers.add_parser(
+        "review-queue",
+        help="Inspect or record decisions in a shared BLOCK-lane review queue.",
+    )
+    queue_subparsers = queue_parser.add_subparsers(dest="queue_command")
+    queue_list_parser = queue_subparsers.add_parser(
+        "list",
+        help="List queued BLOCK-lane review items.",
+    )
+    queue_list_parser.add_argument("queue", type=Path, help="Review queue JSON file.")
+    queue_decide_parser = queue_subparsers.add_parser(
+        "decide",
+        help="Append a reviewer decision to a queued item.",
+    )
+    queue_decide_parser.add_argument("queue", type=Path, help="Review queue JSON file.")
+    queue_decide_parser.add_argument("item_id", type=str, help="Queued item id.")
+    queue_decide_parser.add_argument(
+        "decision",
+        choices=("approve", "reject"),
+        help="Decision to append to the item's audit history.",
+    )
+    queue_decide_parser.add_argument(
+        "--reviewer",
+        required=True,
+        help="Reviewer identity to record with the decision.",
     )
     export_parser = subparsers.add_parser(
         "export",
@@ -572,6 +704,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_eval(args)
     if args.command == "ingest":
         return _run_ingest(args)
+    if args.command == "serve":
+        return _run_serve(args)
+    if args.command == "review-queue":
+        return _run_review_queue(args)
     if args.command == "export":
         return _run_export(args)
     if args.command == "calibrate":
@@ -583,11 +719,220 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.print_help()
     return 0
 
+def _run_review_queue(args: argparse.Namespace) -> int:
+    if args.queue_command is None:
+        print("kosha: review-queue requires a subcommand: list or decide", file=sys.stderr)
+        return 2
+    queue = ReviewQueue(args.queue)
+    if args.queue_command == "list":
+        for item in queue.items():
+            print(
+                f"{item.item_id}\t{item.status}\t{item.path}\t"
+                f"{item.source}\t{len(item.decisions)} decision(s)"
+            )
+        return 0
+    if args.queue_command == "decide":
+        try:
+            item = queue.record_decision(args.item_id, args.reviewer, args.decision)
+        except (KeyError, ValueError) as exc:
+            print(f"kosha: review queue decision failed: {exc}", file=sys.stderr)
+            return 2
+        print(
+            f"recorded {item.status} for {item.item_id}; "
+            "rerun ingest with explicit approval to apply bundle changes."
+        )
+        return 0
+    print("kosha: review-queue requires a subcommand: list or decide", file=sys.stderr)
+    return 2
+
+
+
+def _run_serve(args: argparse.Namespace) -> int:
+    """Run ``kosha serve``: local HTTP/SSE traversal boundary."""
+    clearance = set(resolve_clearance(os.environ))
+    clearance.update(label for label in args.clearance if label)
+    if not args.allow_non_loopback and not _is_loopback_host(args.host):
+        print(
+            "kosha: refusing to bind served mode outside loopback without "
+            "--allow-non-loopback",
+            file=sys.stderr,
+        )
+        return 2
+    if args.bundles_dir is not None:
+        if not args.bundles_dir.is_dir():
+            print(f"kosha: not a bundles directory: {args.bundles_dir}", file=sys.stderr)
+            return 2
+        access_by_bundle = _parse_bundle_access_map(args.bundle_access)
+        missing_access = _bundles_missing_access(args.bundles_dir, access_by_bundle)
+        if missing_access and not args.allow_open_bundles:
+            print(
+                "kosha: refusing to serve bundle(s) without access labels: "
+                + ", ".join(missing_access),
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            registry = build_bundles_dir_registry(
+                args.bundles_dir,
+                access_by_bundle=access_by_bundle,
+                clearance=clearance,
+            )
+        except ValueError as exc:
+            print(f"kosha: {exc}", file=sys.stderr)
+            return 2
+    else:
+        if not args.bundle.is_dir():
+            print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
+            return 2
+        try:
+            registry = build_single_bundle_registry(
+                args.bundle,
+                bundle_id=args.bundle_id,
+                bundle_access=_parse_single_bundle_access(args.bundle_access, args.bundle_id),
+                clearance=clearance,
+            )
+        except ValueError as exc:
+            print(f"kosha: {exc}", file=sys.stderr)
+            return 2
+    with make_http_server(args.host, args.port, registry) as server:
+        if args.once:
+            print(
+                f"serving {len(registry.bundle_ids())} bundle(s) on "
+                f"http://{args.host}:{server.server_port}"
+            )
+            return 0
+        print(f"serving traversal boundary on http://{args.host}:{server.server_port}")
+        server.serve_forever()
+    return 0
+
+
+def _parse_bundle_access_map(entries: list[str]) -> dict[str, str]:
+    access: dict[str, str] = {}
+    for entry in entries:
+        bundle_id, separator, label = entry.partition("=")
+        bundle_id = bundle_id.strip()
+        label = label.strip()
+        if not separator or not bundle_id or not label:
+            raise SystemExit("kosha: --bundle-access for --bundles-dir must be bundle_id=label")
+        if bundle_id in access:
+            raise SystemExit(f"kosha: duplicate --bundle-access for bundle {bundle_id!r}")
+        access[bundle_id] = label
+    return access
+
+
+def _parse_single_bundle_access(entries: list[str], bundle_id: str) -> str | None:
+    configured = resolve_bundle_access(os.environ)
+    for entry in entries:
+        left, separator, right = entry.partition("=")
+        if separator:
+            supplied_id = left.strip()
+            label = right.strip()
+            if supplied_id != bundle_id:
+                raise SystemExit(
+                    f"kosha: --bundle-access targets {supplied_id!r}, "
+                    f"but --bundle-id is {bundle_id!r}"
+                )
+            if not label:
+                raise SystemExit("kosha: --bundle-access label must not be blank")
+            configured = label
+        else:
+            label = entry.strip()
+            if not label:
+                raise SystemExit("kosha: --bundle-access label must not be blank")
+            configured = label
+    return configured
+
+
+def _bundles_missing_access(bundles_dir: Path, access_by_bundle: dict[str, str]) -> list[str]:
+    child_ids = {path.name for path in bundles_dir.iterdir() if path.is_dir()}
+    return sorted(child_ids - set(access_by_bundle))
+
+
+def _is_loopback_host(host: str) -> bool:
+    return host in {"127.0.0.1", "::1", "localhost"}
+
+
+def _run_watch_ingest(args: argparse.Namespace) -> int:
+    """Run guarded scheduled ingest for a finite run count or until interrupted."""
+    if args.runs < 0:
+        print("kosha: --runs must be 0 or greater", file=sys.stderr)
+        return 2
+    if args.interval_seconds <= 0:
+        print("kosha: --interval-seconds must be greater than 0", file=sys.stderr)
+        return 2
+    if not args.bundle.is_dir():
+        print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
+        return 2
+    source = args.source if _is_http_url(args.source) else Path(args.source)
+    if isinstance(source, Path) and not source.is_dir():
+        print(f"kosha: not a source directory: {source}", file=sys.stderr)
+        return 2
+    scheduler = ScheduledIngest(
+        source,
+        args.bundle,
+        SourcePolicy(
+            max_bytes=args.url_max_bytes,
+            allowed_hosts=frozenset(args.allowed_host),
+        ),
+        interval_seconds=args.interval_seconds,
+        reviewer=args.reviewer,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        authority=args.authority,
+    )
+    queued = 0
+    run_count = 0
+    while args.runs == 0 or run_count < args.runs:
+        try:
+            result = scheduler.run_once()
+            queued += _enqueue_blocked_if_requested(args, result, str(args.source))
+        except (UrlIngestError, ValueError) as exc:
+            print(f"kosha: scheduled ingest failed: {exc}", file=sys.stderr)
+            return 2
+        run_count += 1
+        if args.json:
+            print(cli_json.dumps(cli_json.ingest_json(result, dry_run=args.dry_run)))
+        else:
+            print(render_plan(result.plan))
+            print()
+            print(render_routing(result.routing))
+            if args.dry_run:
+                print("\ndry run: no changes written. review queue not written.")
+        if args.runs == 0 or run_count < args.runs:
+            time.sleep(args.interval_seconds)
+    if queued and not args.json:
+        print(f"\nqueued {queued} BLOCK-lane item(s) for shared review.")
+    return 0
+
+
+def _is_http_url(value: str) -> bool:
+    return urlsplit(value).scheme.lower() in {"http", "https"}
+
+
+def _enqueue_blocked_if_requested(
+    args: argparse.Namespace, result: IngestResult, source: str
+) -> int:
+    if args.review_queue is None:
+        return 0
+    if args.dry_run:
+        return 0
+    queue = ReviewQueue(args.review_queue)
+    items = queue.enqueue(
+        result.plan,
+        result.routing,
+        source=source,
+        created_by=args.reviewer,
+    )
+    return len(items)
+
 
 def _run_ingest(args: argparse.Namespace) -> int:
     """Run ``kosha ingest``: build the plan, route it, and commit on approval."""
-    if not args.source.is_dir():
-        print(f"kosha: not a source directory: {args.source}", file=sys.stderr)
+    if args.watch:
+        return _run_watch_ingest(args)
+    source = Path(args.source)
+    if not source.is_dir():
+        print(f"kosha: not a source directory: {source}", file=sys.stderr)
         return 2
     if not args.bundle.is_dir():
         print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
@@ -596,19 +941,21 @@ def _run_ingest(args: argparse.Namespace) -> int:
         return _run_ingest_review(args)
     reader = input if sys.stdin.isatty() and not args.yes else None
     try:
-        result = ingest(
-            args.source,
-            args.bundle,
-            asof=datetime.now(UTC),
-            source_authority=args.authority,
-            dry_run=args.dry_run,
-            assume_yes=args.yes,
-            reader=reader,
-            reviewer=args.reviewer,
-        )
+        reviewer = normalize_reviewer(args.reviewer)
     except ValueError as exc:
         print(f"kosha: invalid --reviewer: {exc}", file=sys.stderr)
         return 2
+    result = ingest(
+        source,
+        args.bundle,
+        asof=datetime.now(UTC),
+        source_authority=args.authority,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        reader=reader,
+        reviewer=reviewer,
+    )
+    queued = _enqueue_blocked_if_requested(args, result, str(source))
     if args.json:
         print(cli_json.dumps(cli_json.ingest_json(result, dry_run=args.dry_run)))
         return 0
@@ -616,7 +963,7 @@ def _run_ingest(args: argparse.Namespace) -> int:
     print()
     print(render_routing(result.routing))
     if args.dry_run:
-        print("\ndry run: no changes written.")
+        print("\ndry run: no changes written. review queue not written.")
         return 0
     if result.committed and result.commit_sha is not None:
         print(
@@ -625,6 +972,8 @@ def _run_ingest(args: argparse.Namespace) -> int:
         )
     else:
         print("\nnot approved: nothing committed.")
+    if queued:
+        print(f"\nqueued {queued} BLOCK-lane item(s) for shared review.")
     return 0
 
 
@@ -635,9 +984,10 @@ def _run_ingest_review(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"kosha: invalid --reviewer: {exc}", file=sys.stderr)
         return 2
+    source = Path(args.source)
     asof = datetime.now(UTC)
     dry_result = ingest(
-        args.source, args.bundle, asof=asof, source_authority=args.authority, dry_run=True
+        source, args.bundle, asof=asof, source_authority=args.authority, dry_run=True
     )
     if dry_result.plan.is_empty:
         if args.json:
@@ -658,7 +1008,7 @@ def _run_ingest_review(args: argparse.Namespace) -> int:
         filtered_routing,
         args.bundle,
         asof=asof,
-        source=args.source,
+        source=source,
         reviewer=reviewer,
     )
     if args.json:
