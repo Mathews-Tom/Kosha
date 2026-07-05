@@ -15,13 +15,23 @@ from kosha.ingest.guardrails import (
     IngestPolicy,
 )
 from kosha.ingest.url import fetch_url, parse_html
+from kosha.ingest.workspace import (
+    WorkspaceExportError,
+    ingest_confluence_export,
+    ingest_notion_export,
+    ingest_slack_export,
+)
 
 __all__ = [
     "DEFAULT_INGEST_POLICY",
     "IngestAdapter",
     "IngestGuardrailError",
     "IngestPolicy",
+    "WorkspaceExportError",
     "fetch_url",
+    "ingest_confluence_export",
     "ingest_folder",
+    "ingest_notion_export",
+    "ingest_slack_export",
     "parse_html",
 ]
