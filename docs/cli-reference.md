@@ -65,6 +65,20 @@ uv run kosha ingest ./policy-docs --bundle bundles/northwind --authority 2 --yes
 uv run kosha ingest ./policy-docs --bundle bundles/northwind --review
 ```
 
+### Supported source adapter formats
+
+The `kosha ingest` CLI ingests a local Markdown source folder directly. Additional adapters are library APIs under `kosha.ingest`; they normalize local export files into `RawDoc` values that can be passed to the pipeline's `raw_docs` parameter. They do not call live SaaS APIs, accept credentials, or fetch remote export links.
+
+| Adapter | Function | Supported input | Provenance |
+|---|---|---|---|
+| Markdown folder | `kosha.ingest.ingest_folder(root)` | Directory tree of UTF-8 `*.md` files. Files are read in sorted path order. | `source_id` and `location` are the POSIX path relative to `root`; `kind` is `markdown`. |
+| Confluence export | `kosha.ingest.ingest_confluence_export(root)` | Local directory containing UTF-8 `*.md` files and/or `*.json` page files. JSON may be one page object or a list of page objects. Each page object must contain string `id`, string `title`, and string `body` or `content`. | Markdown pages use `confluence:<relative-path>`; JSON pages use `confluence:<id>` with `location` `<relative-json-path>#<id>`; `kind` is `workspace_export`. |
+| Notion export | `kosha.ingest.ingest_notion_export(root)` | Local directory tree of UTF-8 `*.md` files from a Notion-style Markdown export. | `source_id` is `notion:<relative-path>`; `location` is the relative path; `kind` is `workspace_export`. |
+| Slack export | `kosha.ingest.ingest_slack_export(root)` | Local Slack-style JSON export directory. Each `*.json` file must be a non-empty array of message objects with string `ts` and `text`; string `user` is optional. | `source_id` is `slack:<channel>/<date>` for nested channel/day files; `location` is the relative JSON path; `kind` is `workspace_export`. |
+| PDF/DOCX documents | `kosha.ingest.documents.ingest_documents(path)` | One `.pdf`/`.docx` file or a directory tree of those files. Requires the explicit optional extra: `uv sync --extra documents`. Unsupported extensions are rejected. | `source_id` is `document:<filename>` for one file or `document:<relative-path>` for a directory; `location` is the filename or relative path; `kind` is `document`. |
+
+Every adapter applies the shared ingest policy before yielding `RawDoc`: bounded bytes via `IngestPolicy(max_bytes=...)`, hidden-Unicode prompt-injection sanitization, and stable `Source` metadata. URL sources additionally keep the M6 network guardrails: only HTTP(S), public resolved addresses, and bounded response bytes. Secret-like content is scanned later when the pipeline builds file changes; a matching detector routes the change to the BLOCK lane rather than auto-committing it.
+
 ---
 
 ## `kosha bench`
