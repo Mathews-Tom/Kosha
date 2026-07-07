@@ -680,6 +680,27 @@ def build_parser() -> argparse.ArgumentParser:
         "status",
         help="Write benchmark and status surfaces.",
     )
+    agent_fragment_parser = sync_subparsers.add_parser(
+        "agent-fragment",
+        help="Install or update the Kosha traversal fragment in an agent instruction file.",
+    )
+    agent_fragment_parser.add_argument(
+        "--target",
+        type=Path,
+        required=True,
+        help="Path to the instruction file (e.g. AGENTS.md, CLAUDE.md).",
+    )
+    agent_fragment_parser.add_argument(
+        "--bundle",
+        type=Path,
+        required=True,
+        help="Path to the OKF bundle.",
+    )
+    agent_fragment_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
     release_parser = subparsers.add_parser(
         "release",
         help="Tag a validated bundle as an immutable, reproducible release.",
@@ -744,10 +765,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.print_help()
     return 0
 
+
 def _run_sync(args: argparse.Namespace) -> int:
-    """Run ``kosha sync`` read-only public-surface checks or writers."""
+    """Run ``kosha sync`` subcommands."""
+    if args.sync_command == "agent-fragment":
+        return _run_sync_agent_fragment(args)
     if args.sync_command not in ("check", "docs", "status"):
-        print("kosha: sync requires a subcommand: check, docs, status", file=sys.stderr)
+        print(
+            "kosha: sync requires a subcommand: check, docs, status, agent-fragment",
+            file=sys.stderr,
+        )
         return 2
 
     repo_root = Path.cwd()
@@ -826,6 +853,33 @@ def _run_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_sync_agent_fragment(args: argparse.Namespace) -> int:
+    import json
+
+    from kosha.sync.agent_fragment import update_instructions
+
+    content = ""
+    if args.target.exists():
+        content = args.target.read_text("utf-8")
+
+    new_content = update_instructions(content)
+    changed = new_content != content
+
+    if changed:
+        args.target.parent.mkdir(parents=True, exist_ok=True)
+        args.target.write_text(new_content, "utf-8")
+        msg = f"Updated {args.target}"
+    else:
+        msg = f"Already up to date: {args.target}"
+
+    if args.json:
+        print(json.dumps({"target": str(args.target), "changed": changed}))
+    else:
+        print(msg)
+
+    return 0
+
+
 def _run_review_queue(args: argparse.Namespace) -> int:
     if args.queue_command is None:
         print("kosha: review-queue requires a subcommand: list or decide", file=sys.stderr)
@@ -853,15 +907,13 @@ def _run_review_queue(args: argparse.Namespace) -> int:
     return 2
 
 
-
 def _run_serve(args: argparse.Namespace) -> int:
     """Run ``kosha serve``: local HTTP/SSE traversal boundary."""
     clearance = set(resolve_clearance(os.environ))
     clearance.update(label for label in args.clearance if label)
     if not args.allow_non_loopback and not _is_loopback_host(args.host):
         print(
-            "kosha: refusing to bind served mode outside loopback without "
-            "--allow-non-loopback",
+            "kosha: refusing to bind served mode outside loopback without --allow-non-loopback",
             file=sys.stderr,
         )
         return 2
@@ -1074,8 +1126,7 @@ def _run_ingest(args: argparse.Namespace) -> int:
         return 0
     if result.committed and result.commit_sha is not None:
         print(
-            f"\ncommitted {result.commit_sha[:8]} on {result.branch} "
-            f"(backup {result.backup_tag})."
+            f"\ncommitted {result.commit_sha[:8]} on {result.branch} (backup {result.backup_tag})."
         )
     else:
         print("\nnot approved: nothing committed.")
@@ -1133,8 +1184,7 @@ def _run_ingest_review(args: argparse.Namespace) -> int:
         print("\nnot approved: an escalated conflict was not acknowledged; nothing committed.")
     elif result.committed and result.commit_sha is not None:
         print(
-            f"\ncommitted {result.commit_sha[:8]} on {result.branch} "
-            f"(backup {result.backup_tag})."
+            f"\ncommitted {result.commit_sha[:8]} on {result.branch} (backup {result.backup_tag})."
         )
     else:
         print("\nnot approved: nothing committed.")
@@ -1153,9 +1203,7 @@ def _run_export(args: argparse.Namespace) -> int:
         return 3
     report = build_report(args.bundle, ref=args.ref, include_source_text=args.include_source_text)
     rendered = (
-        to_markdown(report)
-        if args.format == "markdown"
-        else json.dumps(to_json(report), indent=2)
+        to_markdown(report) if args.format == "markdown" else json.dumps(to_json(report), indent=2)
     )
     if args.out is not None:
         args.out.write_text(rendered, encoding="utf-8")
@@ -1184,13 +1232,11 @@ def _run_validate(bundle: Path, json_output: bool = False) -> int:
     print(f"OK: {bundle} is OKF-conformant ({warnings} warning(s))")
     return 0
 
+
 def _run_bench_corpus(out_dir: Path) -> int:
     """Regenerate the external stdlib benchmark corpus into ``out_dir``."""
     stats = build_corpus(out_dir)
-    print(
-        f"Wrote {stats.concept_count} concepts across {stats.module_count} modules "
-        f"to {out_dir}"
-    )
+    print(f"Wrote {stats.concept_count} concepts across {stats.module_count} modules to {out_dir}")
     return 0
 
 
@@ -1266,9 +1312,7 @@ def _run_calibrate(args: argparse.Namespace) -> int:
             print(f"kosha: {error}", file=sys.stderr)
             return 2
     pairs = load_dedup_pairs(args.labels)
-    calibration = calibrate_thresholds(
-        pairs, resolve_embedding_provider(), margin=args.margin
-    )
+    calibration = calibrate_thresholds(pairs, resolve_embedding_provider(), margin=args.margin)
     adjudicator = calibrate_adjudicator_threshold(pairs)
     targeter = calibrate_targeter_threshold(load_merge_cases(_MERGE_LABELS))
     relator = calibrate_relator_threshold(load_relate_cases(_RELATE_LABELS))
@@ -1383,10 +1427,7 @@ def _run_eval_extract(labels_path: Path, json_output: bool = False) -> int:
     if json_output:
         print(cli_json.dumps(cli_json.eval_extract_json(labels_path, provider.name, report)))
         return 0
-    print(
-        f"Extractor eval over {labels_path} "
-        f"({report.label_count} labels, gen={provider.name})"
-    )
+    print(f"Extractor eval over {labels_path} ({report.label_count} labels, gen={provider.name})")
     print(f"boundary accuracy: {report.score:.3f} ({report.correct}/{report.label_count})")
     return 0
 
@@ -1590,7 +1631,6 @@ def _run_recover_reindex(args: argparse.Namespace, store: GitStore) -> int:
         f"(commit {(record.commit_sha or '')[:8]}, backup {record.backup_tag})."
     )
     return 0
-
 
 
 def _run_release(args: argparse.Namespace) -> int:
