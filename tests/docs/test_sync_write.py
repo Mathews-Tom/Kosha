@@ -72,7 +72,7 @@ def test_write_readme_cli_overview(tmp_path):
     write_readme_cli_overview(tmp_path)
 
     content = readme.read_text()
-    assert "- `kosha validate`" in content
+    assert "| `kosha validate` |" in content
 
 def test_write_readme_acceptance_table(tmp_path, monkeypatch):
     monkeypatch.setattr(
@@ -89,7 +89,7 @@ def test_write_readme_acceptance_table(tmp_path, monkeypatch):
     write_readme_acceptance_table(tmp_path)
 
     content = readme.read_text()
-    assert "| ID | Objective | Status |" in content
+    assert "| Criterion | Result |" in content
 
 def test_write_gate0_status(tmp_path, monkeypatch):
     monkeypatch.setattr(

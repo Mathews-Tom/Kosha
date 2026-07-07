@@ -212,8 +212,8 @@ def write_readme_acceptance_table(repo_root: Path) -> None:
     writer = GeneratedSectionWriter("readme-acceptance-table")
     
     lines = [
-        "| ID | Objective | Status |",
-        "|---|---|---|",
+        "| Criterion | Result |",
+        "|---|---|",
         *rows
     ]
     

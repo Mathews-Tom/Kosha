@@ -6,7 +6,9 @@ Kosha has two separate evidence tracks. The deterministic local-provider gates v
 
 ## Current public verdict
 
+<!-- kosha:sync:start gate0-status -->
 **Real-model Gate-0 verdict: NO-GO.** Kosha ships as an OSS governance skill. M14+ product expansion remains halted unless a later pre-registered real-model Gate-0 run records a GO verdict.
+<!-- kosha:sync:end -->
 
 ## Evidence summary
 

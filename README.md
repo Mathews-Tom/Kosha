@@ -27,6 +27,7 @@ Version `0.1.0`.
 
 **Deterministic self-consistency gate** — runs offline with local providers (`lexical-hash-256` embeddings, `extractive-3` generation) on the reference corpus (`bundles/northwind`); currently **passes**:
 
+<!-- kosha:sync:start readme-acceptance-table -->
 | Criterion | Result |
 |---|---|
 | Hybrid token cost < RAG (at matched quality) and latency within RAG margin | **PASS** — 602 vs 865 tokens-per-recall; recall 1.00 vs 0.62 |
@@ -34,6 +35,7 @@ Version `0.1.0`.
 | Duplicate-rate ~= 0 after repeated ingests | **PASS** — re-ingesting 12 concepts -> 0 create / 12 update |
 | Fidelity preserved across >=20 sequential ingests | **PASS** — no edit-drift across 20 sequential ingests |
 | Contradictions resolved-or-escalated, 0 silent overwrites | **PASS** — 12/12 handled; 0 silent overwrites |
+<!-- kosha:sync:end -->
 
 These figures verify deterministic mechanics, not real-model decision quality; reproduce with `uv run kosha bench acceptance`.
 
@@ -167,29 +169,37 @@ Without MCP, the same protocol ships as an `AGENTS.md` fragment ([`consumer/AGEN
 
 ## CLI overview
 
+<!-- kosha:sync:start readme-cli-overview -->
 | Command | What it does |
 |---|---|
-| `kosha validate <bundle>` | OKF v0.1 conformance gate (exit ≠ 0 blocks merge) |
-| `kosha bench [--bundle] [--report]` | Premise-validation retrieval benchmark (hybrid vs RAG vs long-context) |
-| `kosha bench acceptance [--bundle] [--report]` | Gate the five MVP success criteria (exit 0 iff all pass) |
-| `kosha bench corpus [--out]` | Regenerate the external stdlib benchmark corpus |
-| `kosha bench realworld [--corpus] [--ingests] [--report]` | Real-model benchmark: loop vs tuned RAG vs prompt-only baselines |
-| `kosha calibrate [--labels] [--margin]` | Fit lexical decision thresholds to seed labels |
-| `kosha eval extract` | Score concept extraction against seed labels |
-| `kosha eval dedup` | Score dedup precision/recall and duplicate rate |
-| `kosha eval merge` | Score merge claim-targeting accuracy |
-| `kosha eval relate` | Score cross-link discovery precision/recall |
-| `kosha eval contradict` | Score contradiction-detection precision/recall/F1 |
-| `kosha ingest <source> [--bundle] [--dry-run] [--yes] [--authority]` | Run the maintenance loop behind the approve gate |
-| `kosha serve [--bundle] [--once]` | Serve traversal-only bundle access over a local HTTP/SSE boundary |
-| `kosha review-queue list <queue>` | Inspect BLOCK-lane review queue items |
-| `kosha review-queue decide <queue> <item_id> {approve,reject}` | Record BLOCK-lane decisions with a reviewer identity |
-| `kosha export <bundle> [--format] [--out]` | Export compliance-grade bundle audit evidence |
-| `kosha recover backups <bundle>` | List available ingest safety backup tags |
-| `kosha recover restore <bundle> --tag TAG` | Preview or apply a restore from a backup tag |
-| `kosha recover reindex <bundle>` | Preview or apply deterministic `index.md` regeneration |
-| `kosha sync check [--json]` | Check generated public surfaces against live source-of-truth data without writing |
-| `kosha release <bundle> --tag VERSION` | Tag a validated bundle as an immutable release |
+| `kosha validate` | Check an OKF bundle for v0.1 conformance. |
+| `kosha bench` | Run the Premise-Validation retrieval benchmark. |
+| `kosha bench acceptance` | Gate the MVP success criteria on the golden corpus (exit 0 iff all pass). |
+| `kosha bench corpus` | Regenerate the external stdlib benchmark corpus (DEVELOPMENT_PLAN M13). |
+| `kosha bench realworld` | Run the M13 real-model, held-out benchmark and record the go/no-go verdict. |
+| `kosha calibrate` | Fit the dedup thresholds to the configured embedding on the seed labels. |
+| `kosha eval` | Run an LLM-surface eval suite. |
+| `kosha eval extract` | Score the concept extractor against seed granularity labels. |
+| `kosha eval dedup` | Score the dedup resolver: precision/recall + duplicate rate. |
+| `kosha eval merge` | Score the merge surface: claim-targeting accuracy. |
+| `kosha eval relate` | Score the cross-linker relate surface: link-discovery precision/recall. |
+| `kosha eval contradict` | Score the contradiction detector: conflict-detection precision/recall/F1. |
+| `kosha ingest` | Ingest a source folder into a bundle behind the plan->approve->commit gate. |
+| `kosha serve` | Serve traversal-only bundle access over a local HTTP/SSE boundary. |
+| `kosha review-queue` | Inspect or record decisions in a shared BLOCK-lane review queue. |
+| `kosha review-queue list` | List queued BLOCK-lane review items. |
+| `kosha review-queue decide` | Append a reviewer decision to a queued item. |
+| `kosha export` | Export compliance-grade audit evidence for a bundle's git history. |
+| `kosha recover` | Backup-tag-based recovery: list backups, restore, or reindex. |
+| `kosha recover backups` | List available backup tags. |
+| `kosha recover restore` | Restore a bundle to a backup tag's recorded state. |
+| `kosha recover reindex` | Regenerate index.md files that drifted from the bundle's concepts. |
+| `kosha sync` | Check generated public surfaces against deterministic sources. |
+| `kosha sync check` | Report generated public-surface drift without writing files. |
+| `kosha sync docs` | Write deterministic public-surface docs sections. |
+| `kosha sync status` | Write benchmark and status surfaces. |
+| `kosha release` | Tag a validated bundle as an immutable, reproducible release. |
+<!-- kosha:sync:end -->
 
 Full reference: [`docs/cli-reference.md`](docs/cli-reference.md).
 
