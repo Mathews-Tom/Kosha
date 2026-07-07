@@ -29,10 +29,13 @@ from kosha.sync.state import (
     save_sync_state,
     sync_state_path,
 )
+from kosha.sync.writer import GeneratedSectionWriter, MissingMarkerError
 
 __all__ = [
     "ContentSnapshot",
+    "GeneratedSectionWriter",
     "InvalidSyncStateError",
+    "MissingMarkerError",
     "ProviderState",
     "SnapshotEntry",
     "SnapshotError",
