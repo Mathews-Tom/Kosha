@@ -672,11 +672,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the result as structured JSON instead of text.",
     )
-    sync_docs_parser = sync_subparsers.add_parser(
+    sync_subparsers.add_parser(
         "docs",
         help="Write deterministic public-surface docs sections.",
     )
-    sync_status_parser = sync_subparsers.add_parser(
+    sync_subparsers.add_parser(
         "status",
         help="Write benchmark and status surfaces.",
     )
@@ -747,7 +747,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _run_sync(args: argparse.Namespace) -> int:
     """Run ``kosha sync`` read-only public-surface checks or writers."""
     if args.sync_command not in ("check", "docs", "status"):
-        print(f"kosha: sync requires a subcommand: check, docs, status", file=sys.stderr)
+        print("kosha: sync requires a subcommand: check, docs, status", file=sys.stderr)
         return 2
 
     repo_root = Path.cwd()
@@ -760,9 +760,14 @@ def _run_sync(args: argparse.Namespace) -> int:
         return 0 if report.ok else 1
         
     # Writers: docs, status
-    from kosha.sync.state import sync_state_path, load_sync_state, save_sync_state, SyncState, ProviderState
+    from kosha.sync.decision import current_git_head, decide_sync
     from kosha.sync.snapshot import content_snapshot
-    from kosha.sync.decision import decide_sync, current_git_head
+    from kosha.sync.state import (
+        SyncState,
+        load_sync_state,
+        save_sync_state,
+        sync_state_path,
+    )
     
     state_path = sync_state_path(repo_root)
     state = load_sync_state(state_path) if state_path.is_file() else None
@@ -785,7 +790,7 @@ def _run_sync(args: argparse.Namespace) -> int:
     # Do writes based on command
     if args.sync_command == "docs":
         from kosha.sync.cli_reference import write_cli_reference, write_readme_cli_overview
-        from kosha.sync.traversal import write_mcp_integration_doc, write_fallback_artifacts
+        from kosha.sync.traversal import write_fallback_artifacts, write_mcp_integration_doc
         
         write_cli_reference(repo_root)
         write_readme_cli_overview(repo_root)
@@ -793,17 +798,17 @@ def _run_sync(args: argparse.Namespace) -> int:
         write_fallback_artifacts(repo_root)
         
     elif args.sync_command == "status":
-        from kosha.sync.status_surfaces import write_readme_acceptance_table, write_gate0_status
+        from kosha.sync.status_surfaces import write_gate0_status, write_readme_acceptance_table
         write_readme_acceptance_table(repo_root)
         write_gate0_status(repo_root)
         
     # Re-snapshot to record the new hash
     new_snap = content_snapshot(repo_root)
     if not state or new_snap.sha256 != state.content_snapshot or state.command != args.sync_command:
-        # Avoid creating state directory if this is just testing in memory, though we should write state.
         head = current_git_head(repo_root)
         
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
+
         from kosha import __version__
         
         new_state = SyncState(

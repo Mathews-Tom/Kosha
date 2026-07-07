@@ -43,6 +43,7 @@ def test_missing_end_marker_raises():
         writer.write_section(text, "new content")
 
 def test_write_cli_reference(tmp_path):
+
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
     cli_ref = tmp_path / CLI_REFERENCE_PATH
@@ -60,6 +61,7 @@ def test_write_cli_reference(tmp_path):
     assert "kosha validate" in content
 
 def test_write_readme_cli_overview(tmp_path):
+
     readme = tmp_path / README_PATH
     readme.write_text(
         "<!-- kosha:sync:start readme-cli-overview -->\n"
@@ -130,8 +132,6 @@ def test_write_fallback_artifacts(tmp_path):
     assert skill.is_file()
 
 def test_sync_docs_no_op(tmp_path, monkeypatch):
-    import os
-    import sys
     from kosha.cli import main
     from kosha.sync.state import sync_state_path
     
@@ -158,14 +158,18 @@ def test_sync_docs_no_op(tmp_path, monkeypatch):
     assert "no changes required" in buf.getvalue()
     
 def test_sync_status_no_op(tmp_path, monkeypatch):
-    import os
-    import sys
+    from kosha.bench.acceptance import AcceptanceReport
     from kosha.cli import main
     from kosha.sync.state import sync_state_path
-    from kosha.bench.acceptance import AcceptanceReport
     
-    monkeypatch.setattr('kosha.sync.status_surfaces.run_default_acceptance_report', lambda root: AcceptanceReport('dummy', 0, 'dummy', 'dummy', ()))
-    monkeypatch.setattr("kosha.sync.status_surfaces.render_gate_status_summary", lambda rep: "mock expected summary")
+    monkeypatch.setattr(
+        "kosha.sync.status_surfaces.run_default_acceptance_report",
+        lambda root: AcceptanceReport("dummy", 0, "dummy", "dummy", ()),
+    )
+    monkeypatch.setattr(
+        "kosha.sync.status_surfaces.render_gate_status_summary",
+        lambda rep: "mock expected summary",
+    )
     monkeypatch.setattr("kosha.sync.status_surfaces.recorded_gate0_report", lambda: None)
     
     monkeypatch.chdir(tmp_path)
