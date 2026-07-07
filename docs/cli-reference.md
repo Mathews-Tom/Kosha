@@ -57,6 +57,7 @@ Diagnose configured AI providers. Prints the configured embedding and generation
 uv run kosha doctor providers
 ```
 
+
 ## `kosha validate`
 
 ```text
