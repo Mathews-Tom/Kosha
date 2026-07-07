@@ -43,17 +43,19 @@ With no subcommand, `kosha` prints help and exits 0. All commands resolve their 
 ---
 ## `kosha doctor`
 
+Diagnostic tools.
+
+### `kosha doctor providers`
+
 ```text
 kosha doctor providers [--json]
 ```
 
-Diagnose local configuration surfaces. `doctor providers` reports provider identity, source, and redacted environment previews without printing raw secret values.
+Diagnose configured AI providers. Prints the configured embedding and generation providers, their source (environment or default), and redacts secret values like API keys. Checks for missing companion variables and formatting errors.
 
 ```bash
 uv run kosha doctor providers
 ```
-
----
 
 
 ## `kosha validate`
