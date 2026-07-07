@@ -9,6 +9,7 @@ from pathlib import Path
 
 from kosha.mcp.fallback import render_consumer_skill, render_fallback_fragment
 from kosha.sync.check import SyncMismatch
+from kosha.sync.writer import GeneratedSectionWriter
 
 MCP_DOC_PATH = Path("docs/mcp-integration.md")
 FALLBACK_FRAGMENT_PATH = Path("consumer/AGENTS.fragment.md")
@@ -171,3 +172,33 @@ def _missing_file(surface: str, path: Path) -> SyncMismatch:
     return SyncMismatch(
         surface=surface, path=path, message="expected traversal surface is missing"
     )
+
+
+def write_mcp_integration_doc(repo_root: Path) -> None:
+    path = repo_root / MCP_DOC_PATH
+    if not path.is_file():
+        return
+        
+    text = path.read_text(encoding="utf-8")
+    writer = GeneratedSectionWriter("mcp-tool-table")
+    
+    rows = render_mcp_tool_rows()
+    lines = [
+        "| Tool | Signature |",
+        "|---|---|",
+        *rows
+    ]
+    
+    new_text = writer.write_section(text, "\n".join(lines))
+    path.write_text(new_text, encoding="utf-8")
+
+def write_fallback_artifacts(repo_root: Path) -> None:
+    expected = {
+        FALLBACK_FRAGMENT_PATH: render_fallback_fragment(),
+        FALLBACK_SKILL_PATH: render_consumer_skill(),
+    }
+    for relative, rendered in expected.items():
+        path = repo_root / relative
+        if not path.parent.is_dir():
+            path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(rendered, encoding="utf-8")

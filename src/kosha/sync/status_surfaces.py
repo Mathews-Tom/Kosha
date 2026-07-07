@@ -219,3 +219,16 @@ def write_readme_acceptance_table(repo_root: Path) -> None:
     
     new_text = writer.write_section(text, "\n".join(lines))
     path.write_text(new_text, encoding="utf-8")
+
+
+def write_gate0_status(repo_root: Path) -> None:
+    path = repo_root / GATE0_STATUS_PATH
+    if not path.is_file():
+        return
+        
+    expected = render_gate_status_summary(recorded_gate0_report())
+    text = path.read_text(encoding="utf-8")
+    writer = GeneratedSectionWriter("gate0-status")
+    
+    new_text = writer.write_section(text, expected)
+    path.write_text(new_text, encoding="utf-8")
