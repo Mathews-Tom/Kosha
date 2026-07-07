@@ -37,8 +37,9 @@ def default_sync_checkers() -> tuple[SyncChecker, ...]:
 
     from kosha.sync.cli_reference import check_cli_reference
     from kosha.sync.status_surfaces import check_status_surfaces
+    from kosha.sync.traversal import check_traversal_surfaces
 
-    return (check_cli_reference, check_status_surfaces)
+    return (check_cli_reference, check_status_surfaces, check_traversal_surfaces)
 
 
 def run_sync_check(repo_root: Path, checkers: Sequence[SyncChecker] = ()) -> SyncCheckReport:
