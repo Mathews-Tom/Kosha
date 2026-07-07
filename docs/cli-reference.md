@@ -4,7 +4,9 @@ The `kosha` command is installed by `uv sync`; run it as `uv run kosha <command>
 
 <!-- kosha:sync:start cli-reference -->
 ```text
-kosha [--version] [-h] {validate,bench,calibrate,eval,ingest,serve,review-queue,export,recover,sync,release} ...
+kosha [--version] [-h] {doctor,validate,bench,calibrate,eval,ingest,serve,review-queue,export,recover,sync,release} ...
+kosha doctor
+kosha doctor providers
 kosha validate
 kosha bench
 kosha bench acceptance
@@ -31,6 +33,7 @@ kosha sync
 kosha sync check
 kosha sync docs
 kosha sync status
+kosha sync agent-fragment
 kosha release
 ```
 <!-- kosha:sync:end -->
@@ -38,6 +41,20 @@ kosha release
 With no subcommand, `kosha` prints help and exits 0. All commands resolve their model providers from the environment, defaulting to the offline local pair ([configuration](configuration.md)). `validate`, `bench` (+ `acceptance`/`corpus`/`realworld`), `calibrate`, `ingest`, `sync check`, and every `eval` suite accept `--json` where documented to print a structured, script-parseable result instead of the text report — see [CI integration](ci-integration.md) for the packaged validate-on-PR action.
 
 ---
+## `kosha doctor`
+
+```text
+kosha doctor providers [--json]
+```
+
+Diagnose local configuration surfaces. `doctor providers` reports provider identity, source, and redacted environment previews without printing raw secret values.
+
+```bash
+uv run kosha doctor providers
+```
+
+---
+
 
 ## `kosha validate`
 

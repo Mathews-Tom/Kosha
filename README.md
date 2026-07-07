@@ -172,6 +172,8 @@ Without MCP, the same protocol ships as an `AGENTS.md` fragment ([`consumer/AGEN
 <!-- kosha:sync:start readme-cli-overview -->
 | Command | What it does |
 |---|---|
+| `kosha doctor` | Diagnostic tools. |
+| `kosha doctor providers` | Diagnose configured AI providers. |
 | `kosha validate` | Check an OKF bundle for v0.1 conformance. |
 | `kosha bench` | Run the Premise-Validation retrieval benchmark. |
 | `kosha bench acceptance` | Gate the MVP success criteria on the golden corpus (exit 0 iff all pass). |

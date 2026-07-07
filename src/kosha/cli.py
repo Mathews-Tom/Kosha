@@ -83,6 +83,7 @@ from kosha.okf import load_bundle
 from kosha.pipeline import IngestResult, commit_reviewed_plan, ingest
 from kosha.plan import build_plan
 from kosha.providers import resolve_embedding_provider, resolve_generation_provider
+from kosha.providers.diagnostics import diagnose_embedding_provider, diagnose_generation_provider
 from kosha.recovery import (
     RecoveryError,
     append_audit_log,
@@ -119,6 +120,15 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
     )
     subparsers = parser.add_subparsers(dest="command")
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Diagnostic tools.",
+    )
+    doctor_subparsers = doctor_parser.add_subparsers(dest="doctor_command", required=True)
+    doctor_subparsers.add_parser(
+        "providers",
+        help="Diagnose configured AI providers.",
+    )
     validate_parser = subparsers.add_parser(
         "validate",
         help="Check an OKF bundle for v0.1 conformance.",
@@ -736,6 +746,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "validate":
         return _run_validate(args.bundle, args.json)
+    elif args.command == "doctor" and getattr(args, "doctor_command", None) == "providers":
+        return _run_doctor_providers(args)
     if args.command == "bench":
         if getattr(args, "bench_command", None) == "acceptance":
             return _run_bench_acceptance(args.bundle, args.report, args.json)
@@ -1667,3 +1679,34 @@ def _max_depth(concept_ids: Iterable[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+def _run_doctor_providers(args: argparse.Namespace) -> int:
+    embed_diag = diagnose_embedding_provider()
+    gen_diag = diagnose_generation_provider()
+    
+    print("Provider Diagnostics")
+    print("====================")
+    
+    has_errors = False
+    
+    for diag in [embed_diag, gen_diag]:
+        print(f"\n[{diag.role.capitalize()} Provider]")
+        print(f"Configured: {diag.is_configured}")
+        print(f"Source:     {diag.source}")
+        print(f"Identity:   {diag.provider_name}")
+        
+        if diag.vars:
+            print("\nEnvironment Variables:")
+            for var in diag.vars:
+                status = var.preview if var.is_set else "(unset)"
+                if var.suspicious:
+                    status += f" [WARNING: {', '.join(var.suspicious)}]"
+                print(f"  {var.key}: {status}")
+                
+        if diag.errors:
+            has_errors = True
+            print("\nErrors:")
+            for err in diag.errors:
+                print(f"  - {err}")
+
+    return 1 if has_errors else 0
