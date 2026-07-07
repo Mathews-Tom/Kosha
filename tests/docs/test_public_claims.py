@@ -133,6 +133,23 @@ def test_check_public_claims_flags_missing_required_disclosures(tmp_path: Path) 
     assert any("missing required disclosure" in detail for detail in mismatch.details)
 
 
+def test_check_public_claims_flags_a_missing_file_at_its_own_path(
+    tmp_path: Path,
+) -> None:
+    files = _minimal_scanned_repo_files(f"# Kosha\n\n{_CANONICAL_DISCLOSURES}")
+    del files[Path("PREMISE_REPORT.md")]
+    _write_repo(tmp_path, files)
+
+    mismatches = check_public_claims(tmp_path)
+
+    assert len(mismatches) == 1
+    mismatch = mismatches[0]
+    assert mismatch.surface == "public-claims"
+    assert mismatch.path == tmp_path / "PREMISE_REPORT.md"
+    assert mismatch.path != tmp_path
+    assert mismatch.message == "expected public claim surface is missing"
+
+
 # ---------------------------------------------------------------------------
 # Scanner unit tests: prove the rules have teeth independently of current docs.
 # ---------------------------------------------------------------------------

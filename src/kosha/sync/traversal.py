@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ast
-import inspect
+import importlib.util
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -82,9 +82,10 @@ def check_fallback_artifacts(repo_root: Path) -> tuple[SyncMismatch, ...]:
 def live_mcp_tools() -> tuple[McpTool, ...]:
     """Return the FastMCP registry-server tools parsed from the server source."""
 
-    from kosha.mcp import server as mcp_server
-
-    source_path = Path(inspect.getsourcefile(mcp_server) or "")
+    spec = importlib.util.find_spec("kosha.mcp.server")
+    if spec is None or spec.origin is None:
+        raise RuntimeError("cannot locate kosha.mcp.server source")
+    source_path = Path(spec.origin)
     if not source_path.is_file():
         raise RuntimeError("cannot locate kosha.mcp.server source")
     module = ast.parse(source_path.read_text(encoding="utf-8"))
@@ -107,21 +108,43 @@ def render_mcp_tool_rows() -> tuple[str, ...]:
 
 
 def _tool_from_function(node: ast.FunctionDef) -> McpTool:
+    docstring = ast.get_docstring(node)
+    description = (
+        docstring.splitlines()[0].rstrip(".") if docstring else "No description"
+    )
     return McpTool(
         name=node.name,
         signature=_signature(node.args),
-        description=(ast.get_docstring(node) or "").splitlines()[0].rstrip("."),
+        description=description,
     )
 
 
 def _signature(args: ast.arguments) -> str:
     defaults = [None] * (len(args.args) - len(args.defaults)) + list(args.defaults)
-    rendered: list[str] = []
-    for arg, default in zip(args.args, defaults, strict=True):
-        annotation = f": {ast.unparse(arg.annotation)}" if arg.annotation is not None else ""
-        default_value = f" = {ast.unparse(default)}" if default is not None else ""
-        rendered.append(f"{arg.arg}{annotation}{default_value}")
+    rendered = [
+        _argument_signature(arg, default)
+        for arg, default in zip(args.args, defaults, strict=True)
+    ]
+    kw_defaults = [
+        _argument_signature(arg, default)
+        for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=True)
+    ]
+    if kw_defaults:
+        rendered.append("*")
+        rendered.extend(kw_defaults)
+    if args.vararg is not None:
+        rendered.append("*" + _argument_signature(args.vararg, None))
+    if args.kwarg is not None:
+        rendered.append("**" + _argument_signature(args.kwarg, None))
     return "(" + ", ".join(rendered) + ")"
+
+
+def _argument_signature(arg: ast.arg, default: ast.expr | None) -> str:
+    annotation = (
+        f": {ast.unparse(arg.annotation)}" if arg.annotation is not None else ""
+    )
+    default_value = f" = {ast.unparse(default)}" if default is not None else ""
+    return f"{arg.arg}{annotation}{default_value}"
 
 
 def _escape_table_cell(value: str) -> str:
@@ -145,4 +168,6 @@ def _is_tool(node: ast.FunctionDef) -> bool:
 
 
 def _missing_file(surface: str, path: Path) -> SyncMismatch:
-    return SyncMismatch(surface=surface, path=path, message="expected traversal surface is missing")
+    return SyncMismatch(
+        surface=surface, path=path, message="expected traversal surface is missing"
+    )

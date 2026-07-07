@@ -1,4 +1,18 @@
-"""Public claim-boundary scanner reused by tests and ``kosha sync check``."""
+"""Public claim-boundary scanner reused by tests and ``kosha sync check``.
+
+Kosha's real-model Gate-0 runs returned NO-GO and M14+ product expansion is
+halted until a future pre-registered run records a GO. Public surfaces may
+describe the governance guarantee (no silent overwrites, replayable lineage) as
+real, but must not claim decision-quality superiority over a good prompt or
+imply that the MCP/fallback traversal boundary sandboxes a host agent that also
+has generic filesystem tools today.
+
+Detection is line-based: public prose paragraphs and markdown table rows in the
+current corpus are authored on single lines, so a match's own line is the right
+window for allow-cues. It is wide enough to catch "does not beat" a few words
+away and narrow enough that an unrelated negation elsewhere in the file cannot
+excuse a real regression.
+"""
 
 from __future__ import annotations
 
@@ -29,7 +43,11 @@ _CANNOT = (
 )
 _SEARCHLIKE = r"(?<![\w-])(?:grep(?:s|ping)?|search(?:es|ing)?)(?![\w-])"
 
+# Banned-claim rules: a hit requires the pattern to match and none of the
+# rule's allow-cues to be present on that same normalized line.
 BANNED_RULES: dict[str, tuple[Pattern[str], tuple[str, ...]]] = {
+    # "the loop beats a good prompt" / "wins over prompt-only baselines" —
+    # a real-model win over a prompt-only baseline, unqualified.
     "prompt_superiority": (
         re.compile(rf"{_BEAT}[^.\n?!]{{0,120}}{_PROMPT}", re.IGNORECASE),
         (
@@ -45,6 +63,8 @@ BANNED_RULES: dict[str, tuple[Pattern[str], tuple[str, ...]]] = {
             "found the opposite",
         ),
     ),
+    # "Kosha delivers decision-quality superiority" — an unqualified
+    # decision-quality superiority claim.
     "decision_quality_superiority": (
         re.compile(r"(?<![\w-])superior(?:ity)?(?![\w-])", re.IGNORECASE),
         (
@@ -55,6 +75,9 @@ BANNED_RULES: dict[str, tuple[Pattern[str], tuple[str, ...]]] = {
             "found the opposite",
         ),
     ),
+    # "a host agent cannot grep the bundle" — a structural capability claim
+    # about the shipped surface, banned unless it names the sandboxed/
+    # future/instruction-only boundary that would actually make it true.
     "host_agent_cannot_grep": (
         re.compile(
             rf"{_CANNOT}[^.\n?!]{{0,100}}{_SEARCHLIKE}|"
@@ -88,13 +111,12 @@ REQUIRED_DISCLOSURES: dict[str, Pattern[str]] = {
     ),
 }
 
-
 def public_doc_paths(repo_root: Path) -> tuple[Path, ...]:
     """Return public prose surfaces scanned for claim-boundary regressions."""
 
     docs = tuple(sorted((repo_root / "docs").glob(DOCS_GLOB)))
     explicit = tuple(repo_root / relative for relative in PUBLIC_DOC_RELATIVE_PATHS)
-    return (*explicit[:3], *docs, *explicit[3:])
+    return (*explicit, *docs)
 
 
 def scanned_paths(repo_root: Path) -> tuple[Path, ...]:
@@ -145,13 +167,13 @@ def check_public_claims(repo_root: Path) -> tuple[SyncMismatch, ...]:
     all_paths = scanned_paths(repo_root)
     missing = tuple(path for path in all_paths if not path.is_file())
     if missing:
-        return (
+        return tuple(
             SyncMismatch(
                 surface="public-claims",
-                path=repo_root,
+                path=path,
                 message="expected public claim surface is missing",
-                details=tuple(path.relative_to(repo_root).as_posix() for path in missing),
-            ),
+            )
+            for path in missing
         )
 
     mismatches: list[SyncMismatch] = []

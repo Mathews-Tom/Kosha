@@ -95,12 +95,7 @@ from kosha.recovery import (
 from kosha.release import ReleaseError, create_release
 from kosha.server import make_http_server
 from kosha.server.registry import build_bundles_dir_registry, build_single_bundle_registry
-from kosha.sync import (
-    default_sync_checkers,
-    render_sync_check_text,
-    run_sync_check,
-    sync_check_json,
-)
+from kosha.sync import render_sync_check_text, run_sync_check, sync_check_json
 from kosha.validate import validate_bundle
 
 # Default golden corpus the benchmark runs against, and the seed label files.
@@ -746,7 +741,7 @@ def _run_sync(args: argparse.Namespace) -> int:
     if args.sync_command != "check":
         print("kosha: sync requires a subcommand: check", file=sys.stderr)
         return 2
-    report = run_sync_check(Path.cwd(), checkers=default_sync_checkers())
+    report = run_sync_check(Path.cwd())
     if args.json:
         print(cli_json.dumps(sync_check_json(report)))
     else:
