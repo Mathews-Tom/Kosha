@@ -29,10 +29,11 @@ Version `0.1.0`.
 
 | Criterion | Result |
 |---|---|
-| Hybrid token cost < RAG at matched quality, latency within margin | **PASS** — 602 vs 865 tokens-per-recall; recall 1.00 vs 0.62 |
-| Duplicate-rate ≈ 0 after repeated ingests | **PASS** — re-ingesting 12 concepts → 0 create / 12 update |
-| Fidelity preserved across ≥20 sequential ingests | **PASS** — no edit-drift |
-| Contradictions resolved-or-escalated, 0 silent overwrites | **PASS** — 12/12 handled |
+| Hybrid token cost < RAG (at matched quality) and latency within RAG margin | **PASS** — 602 vs 865 tokens-per-recall; recall 1.00 vs 0.62 |
+| KS2 latency holds on depth 5 bundle | **PASS** — depth 5; 67 vs 86 tokens-per-recall |
+| Duplicate-rate ~= 0 after repeated ingests | **PASS** — re-ingesting 12 concepts -> 0 create / 12 update |
+| Fidelity preserved across >=20 sequential ingests | **PASS** — no edit-drift across 20 sequential ingests |
+| Contradictions resolved-or-escalated, 0 silent overwrites | **PASS** — 12/12 handled; 0 silent overwrites |
 
 These figures verify deterministic mechanics, not real-model decision quality; reproduce with `uv run kosha bench acceptance`.
 
