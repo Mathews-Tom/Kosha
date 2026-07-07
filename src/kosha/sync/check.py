@@ -32,24 +32,47 @@ class SyncCheckReport:
 
 type SyncChecker = Callable[[Path], Sequence[SyncMismatch]]
 
+
 def default_sync_checkers() -> tuple[SyncChecker, ...]:
     """Return the checkers used by ``kosha sync check``."""
 
     from kosha.sync.cli_reference import check_cli_reference
+    from kosha.sync.public_claims import check_public_claims
     from kosha.sync.status_surfaces import check_status_surfaces
     from kosha.sync.traversal import check_traversal_surfaces
 
-    return (check_cli_reference, check_status_surfaces, check_traversal_surfaces)
+    return (
+        check_cli_reference,
+        check_public_claims,
+        check_status_surfaces,
+        check_traversal_surfaces,
+    )
 
 
-def run_sync_check(repo_root: Path, checkers: Sequence[SyncChecker] = ()) -> SyncCheckReport:
+def run_sync_check(
+    repo_root: Path, checkers: Sequence[SyncChecker] | None = None
+) -> SyncCheckReport:
     """Run every configured sync checker without mutating repository files."""
 
     root = repo_root.resolve()
+    active_checkers = default_sync_checkers() if checkers is None else checkers
     mismatches: list[SyncMismatch] = []
-    for checker in checkers:
-        mismatches.extend(checker(root))
+    for checker in active_checkers:
+        try:
+            mismatches.extend(checker(root))
+        except Exception as exc:
+            mismatches.append(_checker_error(root, checker, exc))
     return SyncCheckReport(tuple(mismatches))
+
+
+def _checker_error(repo_root: Path, checker: SyncChecker, exc: Exception) -> SyncMismatch:
+    checker_name = getattr(checker, "__name__", checker.__class__.__name__)
+    return SyncMismatch(
+        surface=checker_name,
+        path=repo_root,
+        message=f"sync checker raised {type(exc).__name__}",
+        details=(str(exc),),
+    )
 
 
 def sync_check_json(report: SyncCheckReport) -> dict[str, object]:

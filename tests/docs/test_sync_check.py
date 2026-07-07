@@ -23,13 +23,17 @@ table drift), covered below alongside ``check_status_surfaces`` and the
 ``check_mcp_integration_doc`` (``docs/mcp-integration.md`` tool table drift
 against the live ``kosha.mcp.server`` registry tool surface) and
 ``check_fallback_artifacts`` (the committed ``consumer/`` fallback files
-drift against ``kosha.mcp.fallback``'s rendered output). Public-claim
-integration remains out of scope.
+drift against ``kosha.mcp.fallback``'s rendered output). PR-5 wires
+``check_public_claims`` (the M1 public claim-boundary guardrails) into
+``default_sync_checkers``; its own drift coverage lives in
+``tests/docs/test_public_claims.py``, exercised here only through the
+``default_sync_checkers`` wiring assertion below.
 """
 
 import json
 import re
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -78,13 +82,38 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 def test_run_sync_check_with_no_checkers_reports_ok_and_passes_in_text(
     tmp_path: Path,
 ) -> None:
-    report = run_sync_check(tmp_path)
+    report = run_sync_check(tmp_path, checkers=())
 
     assert report.ok is True
     assert report.mismatches == ()
     assert render_sync_check_text(report) == (
         "Kosha sync check passed: generated surfaces match source-of-truth data."
     )
+
+
+def test_run_sync_check_default_checkers_actually_run_and_differ_from_no_checkers(
+    tmp_path: Path,
+) -> None:
+    """``checkers=()`` is an explicit request to skip every check; leaving
+    ``checkers`` unset must still dispatch to ``default_sync_checkers()``
+    instead of silently behaving like ``checkers=()``."""
+    no_check_report = run_sync_check(tmp_path, checkers=())
+    assert no_check_report.ok is True
+    assert no_check_report.mismatches == ()
+
+    default_report = run_sync_check(tmp_path)
+    assert default_report.ok is False
+    assert default_report.mismatches, (
+        "run_sync_check() with no checkers arg must dispatch to the real "
+        "default checkers against an unaligned repo, not skip checking"
+    )
+
+
+def test_run_sync_check_with_no_checkers_arg_passes_against_this_repo() -> None:
+    report = run_sync_check(REPO_ROOT)
+
+    assert report.ok is True
+    assert report.mismatches == ()
 
 
 def _stale_reference_checker(root: Path) -> list[SyncMismatch]:
@@ -132,6 +161,31 @@ def test_run_sync_check_surfaces_a_checker_mismatch_in_report_json_and_text(
     assert (tmp_path.resolve() / "docs" / "cli-reference.md").as_posix() in text
     assert "cli-reference: stale flag list" in text
     assert "missing --json" in text
+
+
+def _raising_checker(root: Path) -> list[SyncMismatch]:
+    raise ValueError("boom: checker exploded")
+
+
+def test_run_sync_check_converts_a_raising_checker_into_a_mismatch_and_keeps_going(
+    tmp_path: Path,
+) -> None:
+    report = run_sync_check(
+        tmp_path, checkers=[_raising_checker, _stale_reference_checker]
+    )
+
+    assert report.ok is False
+    assert len(report.mismatches) == 2
+    error_mismatch, stale_mismatch = report.mismatches
+
+    assert error_mismatch.surface == "_raising_checker"
+    assert error_mismatch.path == tmp_path.resolve()
+    assert error_mismatch.message == "sync checker raised ValueError"
+    assert error_mismatch.details == ("boom: checker exploded",)
+
+    # the second checker still ran despite the first one raising.
+    assert stale_mismatch.surface == "cli-reference"
+    assert stale_mismatch.message == "stale flag list"
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +400,22 @@ def test_live_mcp_tools_includes_live_registry_tools_and_signatures() -> None:
     )
 
 
+def test_live_mcp_tools_does_not_import_kosha_mcp_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``live_mcp_tools`` locates ``kosha.mcp.server``'s source file via
+    ``importlib.util.find_spec`` and parses it with ``ast``; it must never
+    actually import the module, since that module's own top-level import of
+    the optional ``mcp`` SDK would make doc-sync fail on installs that don't
+    have the ``mcp`` extra."""
+    monkeypatch.delitem(sys.modules, "kosha.mcp.server", raising=False)
+
+    tools = live_mcp_tools()
+
+    assert "kosha.mcp.server" not in sys.modules
+    assert {tool.name for tool in tools} >= {"list_bundles", "find_concepts"}
+
+
 def test_render_mcp_tool_rows_produces_rows_present_in_mcp_integration_doc() -> None:
     rows = render_mcp_tool_rows()
     tool_names = {tool.name for tool in live_mcp_tools()}
@@ -435,10 +505,11 @@ def test_check_traversal_surfaces_returns_no_mismatches_for_aligned_repo_docs() 
 # ---------------------------------------------------------------------------
 
 
-def test_default_sync_checkers_includes_cli_reference_status_surface_and_traversal() -> None:
+def test_default_sync_checkers_includes_all_four_registered_checkers() -> None:
     checker_names = {checker.__name__ for checker in default_sync_checkers()}
     assert {
         "check_cli_reference",
+        "check_public_claims",
         "check_status_surfaces",
         "check_traversal_surfaces",
     } <= checker_names

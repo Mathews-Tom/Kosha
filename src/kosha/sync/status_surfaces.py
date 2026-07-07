@@ -15,7 +15,7 @@ from kosha.bench.realworld.runner import (
 )
 from kosha.bench.realworld.status import render_gate_status_summary
 from kosha.okf import load_bundle
-from kosha.providers import resolve_embedding_provider, resolve_generation_provider
+from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
 from kosha.sync.check import SyncMismatch
 
 README_PATH = Path("README.md")
@@ -80,8 +80,8 @@ def run_default_acceptance_report(repo_root: Path) -> AcceptanceReport:
     bundle = load_bundle(bundle_path)
     return run_acceptance(
         bundle,
-        resolve_embedding_provider(),
-        resolve_generation_provider(),
+        LexicalEmbeddingProvider(),
+        ExtractiveGenerationProvider(),
         bundle_path=DEFAULT_ACCEPTANCE_BUNDLE.as_posix(),
     )
 
