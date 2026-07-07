@@ -95,6 +95,7 @@ from kosha.recovery import (
 from kosha.release import ReleaseError, create_release
 from kosha.server import make_http_server
 from kosha.server.registry import build_bundles_dir_registry, build_single_bundle_registry
+from kosha.sync import render_sync_check_text, run_sync_check, sync_check_json
 from kosha.validate import validate_bundle
 
 # Default golden corpus the benchmark runs against, and the seed label files.
@@ -657,6 +658,20 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the result as structured JSON instead of text.",
     )
+    sync_parser = subparsers.add_parser(
+        "sync",
+        help="Check generated public surfaces against deterministic sources.",
+    )
+    sync_subparsers = sync_parser.add_subparsers(dest="sync_command")
+    sync_check_parser = sync_subparsers.add_parser(
+        "check",
+        help="Report generated public-surface drift without writing files.",
+    )
+    sync_check_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
     release_parser = subparsers.add_parser(
         "release",
         help="Tag a validated bundle as an immutable, reproducible release.",
@@ -712,12 +727,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_export(args)
     if args.command == "calibrate":
         return _run_calibrate(args)
+    if args.command == "sync":
+        return _run_sync(args)
     if args.command == "recover":
         return _run_recover(args)
     if args.command == "release":
         return _run_release(args)
     parser.print_help()
     return 0
+
+def _run_sync(args: argparse.Namespace) -> int:
+    """Run ``kosha sync`` read-only public-surface checks."""
+    if args.sync_command != "check":
+        print("kosha: sync requires a subcommand: check", file=sys.stderr)
+        return 2
+    report = run_sync_check(Path.cwd())
+    if args.json:
+        print(cli_json.dumps(sync_check_json(report)))
+    else:
+        print(render_sync_check_text(report))
+    return 0 if report.ok else 1
+
 
 def _run_review_queue(args: argparse.Namespace) -> int:
     if args.queue_command is None:
