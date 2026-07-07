@@ -23,8 +23,11 @@ table drift), covered below alongside ``check_status_surfaces`` and the
 ``check_mcp_integration_doc`` (``docs/mcp-integration.md`` tool table drift
 against the live ``kosha.mcp.server`` registry tool surface) and
 ``check_fallback_artifacts`` (the committed ``consumer/`` fallback files
-drift against ``kosha.mcp.fallback``'s rendered output). Public-claim
-integration remains out of scope.
+drift against ``kosha.mcp.fallback``'s rendered output). PR-5 wires
+``check_public_claims`` (the M1 public claim-boundary guardrails) into
+``default_sync_checkers``; its own drift coverage lives in
+``tests/docs/test_public_claims.py``, exercised here only through the
+``default_sync_checkers`` wiring assertion below.
 """
 
 import json
@@ -435,10 +438,11 @@ def test_check_traversal_surfaces_returns_no_mismatches_for_aligned_repo_docs() 
 # ---------------------------------------------------------------------------
 
 
-def test_default_sync_checkers_includes_cli_reference_status_surface_and_traversal() -> None:
+def test_default_sync_checkers_includes_all_four_registered_checkers() -> None:
     checker_names = {checker.__name__ for checker in default_sync_checkers()}
     assert {
         "check_cli_reference",
+        "check_public_claims",
         "check_status_surfaces",
         "check_traversal_surfaces",
     } <= checker_names
