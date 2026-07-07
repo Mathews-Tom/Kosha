@@ -327,11 +327,17 @@ kosha sync check [--json]
 kosha sync agent-fragment --target PATH --bundle PATH [--json]
 ```
 
-Run read-only deterministic public-surface checks. `sync check` exits `0` when generated/reference surfaces match their live sources and non-zero when any checked file drifts. It never writes files; later `sync docs`/`sync status` commands own repair.
+Run read-only deterministic public-surface checks or update generated documents.
+
+`sync check` exits `0` when generated/reference surfaces match their live sources and non-zero when any checked file drifts. It never writes files; later commands own repair.
+
+`sync agent-fragment` idempotently installs or updates the Kosha traversal fragment in a top-level agent instruction file (like `AGENTS.md` or `CLAUDE.md`). It preserves the file's existing content by rewriting only the section bounded by its markers. The installed fragment explicitly describes the current served-only boundary for knowledge access. It provides instruction to the agent on how to traverse the bundle manually without MCP, but it **does not** configure or enable scheduled automation or ingest loops for the agent.
+
 
 ```bash
 uv run kosha sync check
 uv run kosha sync check --json
+uv run kosha sync agent-fragment --target AGENTS.md --bundle bundles/northwind
 ```
 
 ---
