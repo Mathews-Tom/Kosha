@@ -32,6 +32,13 @@ class SyncCheckReport:
 
 type SyncChecker = Callable[[Path], Sequence[SyncMismatch]]
 
+def default_sync_checkers() -> tuple[SyncChecker, ...]:
+    """Return the checkers used by ``kosha sync check``."""
+
+    from kosha.sync.cli_reference import check_cli_reference
+
+    return (check_cli_reference,)
+
 
 def run_sync_check(repo_root: Path, checkers: Sequence[SyncChecker] = ()) -> SyncCheckReport:
     """Run every configured sync checker without mutating repository files."""
