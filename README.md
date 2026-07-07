@@ -149,15 +149,17 @@ Point Kosha at a source folder. It runs the full maintenance loop behind a **pla
 
 ### Consume — `kosha-mcp`
 
-A FastMCP server exposes exactly five traversal tools and **no raw-text search endpoint**. In an MCP client that receives only that server's tools for bundle access, the knowledge interface is traversal-first:
+A FastMCP server exposes traversal tools and **no raw-text search endpoint**. In an MCP client that receives only that server's tools for bundle access, the knowledge interface is traversal-first:
 
 | Tool | Purpose |
 |---|---|
-| `find_concepts(query, k)` | Embedding jump — land near the answer |
-| `list_index(scope)` | Structured directory listing (progressive disclosure) |
-| `read_frontmatter(concept_id)` | Cheap peek: type, description, effective dates |
-| `load_concept(concept_id, asof)` | Body filtered to in-force, access-permitted claims |
-| `follow_links(concept_id)` | Out-links + backlinks to expand the neighborhood |
+| `list_bundles()` | List bundle ids visible to the caller's configured clearance |
+| `find_concepts(bundle_id, query, k)` | Embedding jump — land near the answer |
+| `list_index(bundle_id, scope)` | Structured directory listing (progressive disclosure) |
+| `read_frontmatter(bundle_id, concept_id)` | Cheap peek: type, description, effective dates |
+| `load_concept(bundle_id, concept_id, asof)` | Body filtered to in-force, access-permitted claims |
+| `follow_links(bundle_id, concept_id)` | Out-links + backlinks to expand the neighborhood |
+| `claim_history(bundle_id, concept_id, claim_id)` | Claim lineage for audit trails |
 
 Without MCP, the same protocol ships as an `AGENTS.md` fragment ([`consumer/AGENTS.fragment.md`](consumer/AGENTS.fragment.md)) and a skill ([`consumer/kosha-traversal/SKILL.md`](consumer/kosha-traversal/SKILL.md)). Integration guide: [`docs/mcp-integration.md`](docs/mcp-integration.md).
 

@@ -8,9 +8,10 @@ produces the paste-in ``AGENTS.md`` section and :func:`render_consumer_skill`
 produces the companion ``SKILL.md``. The committed ``consumer/`` artifacts are
 rendered from these functions (a test guards that they stay in sync).
 
-The fallback mirrors the MCP tool surface (``find_concepts``, ``list_index``,
-``read_frontmatter``, ``load_concept``, ``follow_links``) as file operations so the
-same temporal/access discipline and the same no-grep rule hold without a server.
+The fallback mirrors the MCP bundle traversal surface (``find_concepts``,
+``list_index``, ``read_frontmatter``, ``load_concept``, ``follow_links``,
+``claim_history``) as file operations so the same temporal/access discipline and
+the same no-grep rule hold without a server.
 """
 
 from __future__ import annotations
@@ -26,7 +27,10 @@ effective dates) to judge relevance before loading its body.
 claim whose `effective_to` has passed (use the value in force now). Treat a \
 concept you are not cleared to read as absent.
 - `follow_links` → follow the standard markdown links in a concept body to reach \
-related concepts; load only the neighbors you actually need."""
+related concepts; load only the neighbors you actually need.
+- `claim_history` → inspect claim metadata (`claim_id`, `supersedes`, \
+`contradicts`, `effective_from`, `effective_to`) in the concept frontmatter/body \
+when you need an audit trail for an answer."""
 
 _RULES = """\
 - **Do not grep, ripgrep, or full-text search** the bundle. Traverse from \
@@ -41,8 +45,9 @@ _FRAGMENT = f"""\
 This repository is an OKF knowledge bundle. Answer knowledge questions **only** by
 traversing it, loading the smallest set of concepts that answers the question.
 
-When the Kosha MCP server is connected, use its tools: `find_concepts`,
-`list_index`, `read_frontmatter`, `load_concept`, `follow_links`. Without MCP,
+When the Kosha MCP server is connected, use its bundle traversal tools:
+`find_concepts`, `list_index`, `read_frontmatter`, `load_concept`,
+`follow_links`, `claim_history`. Without MCP,
 perform the same traversal by hand against the files:
 
 {_PROTOCOL}
@@ -55,9 +60,9 @@ _SKILL = f"""\
 ---
 name: kosha-traversal
 description: Consume an OKF knowledge bundle by traversal (find_concepts, \
-list_index, read_frontmatter, load_concept, follow_links) and never by grepping \
-or loading the whole corpus. Use when answering questions from a Kosha/OKF bundle, \
-with or without the MCP server.
+list_index, read_frontmatter, load_concept, follow_links, claim_history) and \
+never by grepping or loading the whole corpus. Use when answering questions from \
+a Kosha/OKF bundle, with or without the MCP server.
 ---
 
 # Kosha traversal consumer

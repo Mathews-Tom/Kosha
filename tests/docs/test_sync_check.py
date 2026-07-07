@@ -19,7 +19,12 @@ Other checkers (fallback/MCP, public-claim integration) are out of scope
 here; PR-3 adds ``check_gate0_status`` (Gate-0 verdict sentence drift) and
 ``check_readme_acceptance_table`` (README deterministic self-consistency
 table drift), covered below alongside ``check_status_surfaces`` and the
-``default_sync_checkers`` wiring.
+``default_sync_checkers`` wiring. PR-4 adds ``check_traversal_surfaces``:
+``check_mcp_integration_doc`` (``docs/mcp-integration.md`` tool table drift
+against the live ``kosha.mcp.server`` registry tool surface) and
+``check_fallback_artifacts`` (the committed ``consumer/`` fallback files
+drift against ``kosha.mcp.fallback``'s rendered output). Public-claim
+integration remains out of scope.
 """
 
 import json
@@ -31,6 +36,7 @@ import pytest
 
 from kosha.bench.realworld.status import render_gate_status_summary
 from kosha.cli import build_parser, main
+from kosha.mcp.fallback import render_consumer_skill, render_fallback_fragment
 from kosha.sync import (
     SyncMismatch,
     default_sync_checkers,
@@ -54,6 +60,16 @@ from kosha.sync.status_surfaces import (
     recorded_gate0_report,
     render_readme_acceptance_rows,
     run_default_acceptance_report,
+)
+from kosha.sync.traversal import (
+    FALLBACK_FRAGMENT_PATH,
+    FALLBACK_SKILL_PATH,
+    MCP_DOC_PATH,
+    check_fallback_artifacts,
+    check_mcp_integration_doc,
+    check_traversal_surfaces,
+    live_mcp_tools,
+    render_mcp_tool_rows,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -312,14 +328,120 @@ def test_check_status_surfaces_returns_no_mismatches_for_aligned_repo_docs() -> 
 
 
 # ---------------------------------------------------------------------------
-# default_sync_checkers: PR-3 wires the status-surface checker in alongside
-# the CLI reference checker.
+# live_mcp_tools / render_mcp_tool_rows: the live FastMCP registry-server
+# tool surface parsed from kosha.mcp.server, and its docs table rendering.
 # ---------------------------------------------------------------------------
 
 
-def test_default_sync_checkers_includes_cli_reference_and_status_surface_checkers() -> None:
+def test_live_mcp_tools_includes_live_registry_tools_and_signatures() -> None:
+    tools = {tool.name: tool for tool in live_mcp_tools()}
+
+    assert tools["list_bundles"].signature == "()"
+    assert (
+        tools["find_concepts"].signature == "(bundle_id: str, query: str, k: int = 3)"
+    )
+    assert (
+        tools["claim_history"].signature
+        == "(bundle_id: str, concept_id: str, claim_id: str | None = None)"
+    )
+
+
+def test_render_mcp_tool_rows_produces_rows_present_in_mcp_integration_doc() -> None:
+    rows = render_mcp_tool_rows()
+    tool_names = {tool.name for tool in live_mcp_tools()}
+
+    assert len(rows) == len(tool_names)
+    assert {"list_bundles", "find_concepts", "claim_history"} <= tool_names
+    doc_text = (REPO_ROOT / MCP_DOC_PATH).read_text(encoding="utf-8")
+    for row in rows:
+        assert row in doc_text
+
+
+# ---------------------------------------------------------------------------
+# check_mcp_integration_doc: docs/mcp-integration.md tool table drift against
+# the live kosha.mcp.server registry tool surface.
+# ---------------------------------------------------------------------------
+
+
+def test_check_mcp_integration_doc_returns_no_mismatches_for_aligned_repo_docs() -> None:
+    assert check_mcp_integration_doc(REPO_ROOT) == ()
+
+
+def test_check_mcp_integration_doc_flags_a_tool_row_missing_from_the_doc(
+    tmp_path: Path,
+) -> None:
+    claim_history_row = next(
+        row for row in render_mcp_tool_rows() if row.startswith("| `claim_history`")
+    )
+    doc_text = (REPO_ROOT / MCP_DOC_PATH).read_text(encoding="utf-8")
+    assert claim_history_row in doc_text
+    drifted_text = doc_text.replace(claim_history_row, "")
+    assert claim_history_row not in drifted_text
+
+    (tmp_path / MCP_DOC_PATH.parent).mkdir(parents=True)
+    (tmp_path / MCP_DOC_PATH).write_text(drifted_text, encoding="utf-8")
+
+    mismatches = check_mcp_integration_doc(tmp_path)
+
+    assert len(mismatches) == 1
+    mismatch = mismatches[0]
+    assert mismatch.surface == "mcp-integration"
+    assert mismatch.path == tmp_path / MCP_DOC_PATH
+    assert mismatch.details == (f"missing row: {claim_history_row}",)
+
+
+# ---------------------------------------------------------------------------
+# check_fallback_artifacts: consumer/AGENTS.fragment.md + consumer/kosha-
+# traversal/SKILL.md drift against kosha.mcp.fallback's rendered output.
+# ---------------------------------------------------------------------------
+
+
+def test_check_fallback_artifacts_returns_no_mismatches_for_aligned_repo_files() -> None:
+    assert check_fallback_artifacts(REPO_ROOT) == ()
+
+
+def test_check_fallback_artifacts_flags_a_stale_committed_fallback_file(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / FALLBACK_SKILL_PATH.parent).mkdir(parents=True)
+    (tmp_path / FALLBACK_FRAGMENT_PATH).write_text(
+        render_fallback_fragment(), encoding="utf-8"
+    )
+    (tmp_path / FALLBACK_SKILL_PATH).write_text(
+        render_consumer_skill() + "\nstale trailing text\n", encoding="utf-8"
+    )
+
+    mismatches = check_fallback_artifacts(tmp_path)
+
+    assert len(mismatches) == 1
+    mismatch = mismatches[0]
+    assert mismatch.surface == "fallback-artifact"
+    assert mismatch.path == tmp_path / FALLBACK_SKILL_PATH
+
+
+# ---------------------------------------------------------------------------
+# check_traversal_surfaces: the MCP-doc and fallback-artifact checkers wired
+# together.
+# ---------------------------------------------------------------------------
+
+
+def test_check_traversal_surfaces_returns_no_mismatches_for_aligned_repo_docs() -> None:
+    assert check_traversal_surfaces(REPO_ROOT) == ()
+
+
+# ---------------------------------------------------------------------------
+# default_sync_checkers: PR-3 wires the status-surface checker in alongside
+# the CLI reference checker; PR-4 adds check_traversal_surfaces.
+# ---------------------------------------------------------------------------
+
+
+def test_default_sync_checkers_includes_cli_reference_status_surface_and_traversal() -> None:
     checker_names = {checker.__name__ for checker in default_sync_checkers()}
-    assert {"check_cli_reference", "check_status_surfaces"} <= checker_names
+    assert {
+        "check_cli_reference",
+        "check_status_surfaces",
+        "check_traversal_surfaces",
+    } <= checker_names
 
 
 # ---------------------------------------------------------------------------

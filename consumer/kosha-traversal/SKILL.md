@@ -1,6 +1,6 @@
 ---
 name: kosha-traversal
-description: Consume an OKF knowledge bundle by traversal (find_concepts, list_index, read_frontmatter, load_concept, follow_links) and never by grepping or loading the whole corpus. Use when answering questions from a Kosha/OKF bundle, with or without the MCP server.
+description: Consume an OKF knowledge bundle by traversal (find_concepts, list_index, read_frontmatter, load_concept, follow_links, claim_history) and never by grepping or loading the whole corpus. Use when answering questions from a Kosha/OKF bundle, with or without the MCP server.
 ---
 
 # Kosha traversal consumer
@@ -16,6 +16,7 @@ maps and standard bundle-relative markdown links between concepts.
 - `read_frontmatter` → read a concept's YAML frontmatter (type, description, effective dates) to judge relevance before loading its body.
 - `load_concept` → read the concept body. Honor temporal validity: ignore any claim whose `effective_to` has passed (use the value in force now). Treat a concept you are not cleared to read as absent.
 - `follow_links` → follow the standard markdown links in a concept body to reach related concepts; load only the neighbors you actually need.
+- `claim_history` → inspect claim metadata (`claim_id`, `supersedes`, `contradicts`, `effective_from`, `effective_to`) in the concept frontmatter/body when you need an audit trail for an answer.
 
 ## Rules
 
