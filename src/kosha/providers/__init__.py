@@ -24,6 +24,12 @@ from kosha.providers.base import (
     Usage,
     Vector,
 )
+from kosha.providers.diagnostics import (
+    EnvVarDiagnostic,
+    ProviderDiagnostic,
+    diagnose_embedding_provider,
+    diagnose_generation_provider,
+)
 from kosha.providers.extractive import ExtractiveGenerationProvider
 from kosha.providers.factory import (
     resolve_embedding_provider,
@@ -38,15 +44,19 @@ from kosha.providers.tokens import count_tokens, tokenize
 
 __all__ = [
     "EmbeddingProvider",
+    "EnvVarDiagnostic",
     "ExtractiveGenerationProvider",
     "Generation",
     "GenerationProvider",
     "LexicalEmbeddingProvider",
     "OpenAICompatibleEmbeddingProvider",
     "OpenAICompatibleGenerationProvider",
+    "ProviderDiagnostic",
     "Usage",
     "Vector",
     "count_tokens",
+    "diagnose_embedding_provider",
+    "diagnose_generation_provider",
     "resolve_embedding_provider",
     "resolve_generation_provider",
     "tokenize",
