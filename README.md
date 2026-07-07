@@ -261,6 +261,8 @@ tests/, evals/      # pytest suites + per-surface eval gates
 | [MCP integration](docs/mcp-integration.md) | Connecting agents; the traversal contract |
 | [CI integration](docs/ci-integration.md) | Validate-on-PR GitHub Action for consumer repos |
 | [Configuration](docs/configuration.md) | Providers, environment variables |
+| [Sync operations](docs/sync.md) | Generated-surface sync workflow and command boundaries |
+| [Docs-impact policy](docs/docs-impact-policy.md) | Source-to-doc evidence policy for agent-authored prose |
 | [Authoring bundles](docs/authoring-bundles.md) | Concept frontmatter, links, temporal validity, conformance |
 | [System overview](docs/overview.md) | Thesis, market, risks, moat |
 | [System design](docs/system_design.md) | Architecture, data model, workflows |
