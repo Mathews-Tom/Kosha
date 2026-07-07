@@ -246,6 +246,13 @@ def test_check_cli_reference_returns_no_mismatches_for_aligned_repo_docs() -> No
     assert check_cli_reference(REPO_ROOT) == ()
 
 
+def test_sync_writer_commands_are_documented_in_generated_surfaces() -> None:
+    commands = {" ".join(command.path) for command in live_cli_commands(build_parser())}
+
+    assert {"sync docs", "sync status"} <= commands
+    assert check_cli_reference(REPO_ROOT) == ()
+
+
 def test_check_cli_reference_flags_a_command_missing_from_cli_reference_doc(
     tmp_path: Path,
 ) -> None:
