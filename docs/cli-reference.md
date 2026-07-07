@@ -2,9 +2,38 @@
 
 The `kosha` command is installed by `uv sync`; run it as `uv run kosha <command>`. A second entry point, `kosha-mcp`, runs the consumer MCP server ([MCP integration](mcp-integration.md)).
 
+<!-- kosha:sync:start cli-reference -->
 ```text
 kosha [--version] [-h] {validate,bench,calibrate,eval,ingest,serve,review-queue,export,recover,sync,release} ...
+kosha validate
+kosha bench
+kosha bench acceptance
+kosha bench corpus
+kosha bench realworld
+kosha calibrate
+kosha eval
+kosha eval extract
+kosha eval dedup
+kosha eval merge
+kosha eval relate
+kosha eval contradict
+kosha ingest
+kosha serve
+kosha review-queue
+kosha review-queue list
+kosha review-queue decide
+kosha export
+kosha recover
+kosha recover backups
+kosha recover restore
+kosha recover reindex
+kosha sync
+kosha sync check
+kosha sync docs
+kosha sync status
+kosha release
 ```
+<!-- kosha:sync:end -->
 
 With no subcommand, `kosha` prints help and exits 0. All commands resolve their model providers from the environment, defaulting to the offline local pair ([configuration](configuration.md)). `validate`, `bench` (+ `acceptance`/`corpus`/`realworld`), `calibrate`, `ingest`, `sync check`, and every `eval` suite accept `--json` where documented to print a structured, script-parseable result instead of the text report — see [CI integration](ci-integration.md) for the packaged validate-on-PR action.
 

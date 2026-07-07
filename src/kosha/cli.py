@@ -672,6 +672,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the result as structured JSON instead of text.",
     )
+    sync_subparsers.add_parser(
+        "docs",
+        help="Write deterministic public-surface docs sections.",
+    )
+    sync_subparsers.add_parser(
+        "status",
+        help="Write benchmark and status surfaces.",
+    )
     release_parser = subparsers.add_parser(
         "release",
         help="Tag a validated bundle as an immutable, reproducible release.",
@@ -737,16 +745,85 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 def _run_sync(args: argparse.Namespace) -> int:
-    """Run ``kosha sync`` read-only public-surface checks."""
-    if args.sync_command != "check":
-        print("kosha: sync requires a subcommand: check", file=sys.stderr)
+    """Run ``kosha sync`` read-only public-surface checks or writers."""
+    if args.sync_command not in ("check", "docs", "status"):
+        print("kosha: sync requires a subcommand: check, docs, status", file=sys.stderr)
         return 2
-    report = run_sync_check(Path.cwd())
-    if args.json:
-        print(cli_json.dumps(sync_check_json(report)))
+
+    repo_root = Path.cwd()
+    if args.sync_command == "check":
+        report = run_sync_check(repo_root)
+        if args.json:
+            print(cli_json.dumps(sync_check_json(report)))
+        else:
+            print(render_sync_check_text(report))
+        return 0 if report.ok else 1
+        
+    # Writers: docs, status
+    from kosha.sync.decision import current_git_head, decide_sync
+    from kosha.sync.snapshot import content_snapshot
+    from kosha.sync.state import (
+        SyncState,
+        load_sync_state,
+        save_sync_state,
+        sync_state_path,
+    )
+    
+    state_path = sync_state_path(repo_root)
+    state = load_sync_state(state_path) if state_path.is_file() else None
+    
+    snap = content_snapshot(repo_root)
+    
+    if state and state.command == args.sync_command:
+        decision = decide_sync(
+            repo_root,
+            recorded_git_head=state.git_head,
+            recorded_updated_at=state.updated_at,
+            recorded_content_snapshot=state.content_snapshot,
+            current_content_snapshot=snap,
+            source_paths=["src/kosha", "tests"],
+        )
+        if decision.noop:
+            print(f"Kosha sync {args.sync_command}: no changes required ({decision.reason}).")
+            return 0
+            
+    # Do writes based on command
+    if args.sync_command == "docs":
+        from kosha.sync.cli_reference import write_cli_reference, write_readme_cli_overview
+        from kosha.sync.traversal import write_fallback_artifacts, write_mcp_integration_doc
+        
+        write_cli_reference(repo_root)
+        write_readme_cli_overview(repo_root)
+        write_mcp_integration_doc(repo_root)
+        write_fallback_artifacts(repo_root)
+        
+    elif args.sync_command == "status":
+        from kosha.sync.status_surfaces import write_gate0_status, write_readme_acceptance_table
+        write_readme_acceptance_table(repo_root)
+        write_gate0_status(repo_root)
+        
+    # Re-snapshot to record the new hash
+    new_snap = content_snapshot(repo_root)
+    if not state or new_snap.sha256 != state.content_snapshot or state.command != args.sync_command:
+        head = current_git_head(repo_root)
+        
+        from datetime import UTC, datetime
+
+        from kosha import __version__
+        
+        new_state = SyncState(
+            updated_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            command=args.sync_command,
+            git_head=head,
+            kosha_version=__version__,
+            content_snapshot=new_snap.sha256,
+        )
+        save_sync_state(state_path, new_state)
+        print(f"Kosha sync {args.sync_command}: surfaces updated.")
     else:
-        print(render_sync_check_text(report))
-    return 0 if report.ok else 1
+        print(f"Kosha sync {args.sync_command}: no changes written.")
+        
+    return 0
 
 
 def _run_review_queue(args: argparse.Namespace) -> int:

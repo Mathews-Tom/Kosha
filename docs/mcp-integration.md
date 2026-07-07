@@ -20,6 +20,7 @@ On start it loads the bundle, builds the embedding index (for the jump), and ser
 
 Inside the MCP surface, these tools are the way to read the knowledge base. They mirror the hybrid retrieval path: **jump** near the answer, then **traverse** to expand and verify. Registry-mode signatures include `bundle_id`; the default `kosha-mcp` entry point serves the configured bundle as `default`.
 
+<!-- kosha:sync:start mcp-tool-table -->
 | Tool | Signature | Returns |
 |---|---|---|
 | `list_bundles` | `()` | List bundle ids visible to the caller's configured clearance |
@@ -29,6 +30,7 @@ Inside the MCP surface, these tools are the way to read the knowledge base. They
 | `find_concepts` | `(bundle_id: str, query: str, k: int = 3)` | Jump to concepts within one addressed bundle, never across bundles |
 | `follow_links` | `(bundle_id: str, concept_id: str)` | List a concept's links and backlinks so you can traverse the graph |
 | `claim_history` | `(bundle_id: str, concept_id: str, claim_id: str \| None = None)` | Show a concept's claim lineage: full audit trail, or one claim's chain |
+<!-- kosha:sync:end -->
 
 ### The intended flow
 

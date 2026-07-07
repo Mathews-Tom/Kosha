@@ -43,6 +43,7 @@ def test_missing_end_marker_raises():
         writer.write_section(text, "new content")
 
 def test_write_cli_reference(tmp_path):
+
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
     cli_ref = tmp_path / CLI_REFERENCE_PATH
@@ -60,6 +61,7 @@ def test_write_cli_reference(tmp_path):
     assert "kosha validate" in content
 
 def test_write_readme_cli_overview(tmp_path):
+
     readme = tmp_path / README_PATH
     readme.write_text(
         "<!-- kosha:sync:start readme-cli-overview -->\n"
@@ -70,7 +72,7 @@ def test_write_readme_cli_overview(tmp_path):
     write_readme_cli_overview(tmp_path)
 
     content = readme.read_text()
-    assert "- `kosha validate`" in content
+    assert "| `kosha validate` |" in content
 
 def test_write_readme_acceptance_table(tmp_path, monkeypatch):
     monkeypatch.setattr(
@@ -87,7 +89,7 @@ def test_write_readme_acceptance_table(tmp_path, monkeypatch):
     write_readme_acceptance_table(tmp_path)
 
     content = readme.read_text()
-    assert "| ID | Objective | Status |" in content
+    assert "| Criterion | Result |" in content
 
 def test_write_gate0_status(tmp_path, monkeypatch):
     monkeypatch.setattr(
@@ -128,3 +130,61 @@ def test_write_fallback_artifacts(tmp_path):
     skill = tmp_path / "consumer/kosha-traversal/SKILL.md"
     assert frag.is_file()
     assert skill.is_file()
+
+def test_sync_docs_no_op(tmp_path, monkeypatch):
+    from kosha.cli import main
+    from kosha.sync.state import sync_state_path
+    
+    # We need a minimal valid bundle structure to not crash on other things,
+    # but docs only reads argparse and mcp tools.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("kosha.sync.decision.current_git_head", lambda root: "abcdef")
+    monkeypatch.setattr("kosha.sync.decision._git", lambda root, *args: "")
+    
+    # Run once
+    main(["sync", "docs"])
+    state = sync_state_path(tmp_path)
+    assert state.is_file()
+    
+    # Run twice
+    # We should capture stdout
+    import io
+    from contextlib import redirect_stdout
+    
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        main(["sync", "docs"])
+        
+    assert "no changes required" in buf.getvalue()
+    
+def test_sync_status_no_op(tmp_path, monkeypatch):
+    from kosha.bench.acceptance import AcceptanceReport
+    from kosha.cli import main
+    from kosha.sync.state import sync_state_path
+    
+    monkeypatch.setattr(
+        "kosha.sync.status_surfaces.run_default_acceptance_report",
+        lambda root: AcceptanceReport("dummy", 0, "dummy", "dummy", ()),
+    )
+    monkeypatch.setattr(
+        "kosha.sync.status_surfaces.render_gate_status_summary",
+        lambda rep: "mock expected summary",
+    )
+    monkeypatch.setattr("kosha.sync.status_surfaces.recorded_gate0_report", lambda: None)
+    
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("kosha.sync.decision.current_git_head", lambda root: "abcdef")
+    monkeypatch.setattr("kosha.sync.decision._git", lambda root, *args: "")
+    
+    main(["sync", "status"])
+    state = sync_state_path(tmp_path)
+    assert state.is_file()
+    
+    import io
+    from contextlib import redirect_stdout
+    
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        main(["sync", "status"])
+        
+    assert "no changes required" in buf.getvalue()

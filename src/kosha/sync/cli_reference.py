@@ -18,6 +18,7 @@ class CliCommand:
     """One live ``kosha`` command path from argparse."""
 
     path: tuple[str, ...]
+    help_text: str = ""
 
     @property
     def text(self) -> str:
@@ -41,7 +42,10 @@ def check_cli_reference(repo_root: Path) -> tuple[SyncMismatch, ...]:
 def live_cli_commands(parser: argparse.ArgumentParser) -> tuple[CliCommand, ...]:
     """Enumerate top-level and nested subcommands from an argparse parser."""
 
-    return tuple(CliCommand(path) for path in _command_paths(parser))
+    return tuple(
+        CliCommand(path=path, help_text=help_text)
+        for path, help_text in _command_paths(parser)
+    )
 
 
 def render_cli_synopsis(commands: tuple[CliCommand, ...]) -> str:
@@ -97,15 +101,21 @@ def _check_readme_cli_overview(
     )
 
 
-def _command_paths(parser: argparse.ArgumentParser) -> tuple[tuple[str, ...], ...]:
+def _command_paths(parser: argparse.ArgumentParser) -> tuple[tuple[tuple[str, ...], str], ...]:
     subparser_action = _subparser_action(parser)
     if subparser_action is None:
         return ()
-    paths: list[tuple[str, ...]] = []
+    paths: list[tuple[tuple[str, ...], str]] = []
+    
+    helps = {}
+    if hasattr(subparser_action, "_choices_actions"):
+        for action in subparser_action._choices_actions:
+            helps[action.dest] = action.help or ""
+            
     for name, child in subparser_action.choices.items():
         path = (name,)
-        paths.append(path)
-        paths.extend((name, *tail) for tail in _command_paths(child))
+        paths.append((path, helps.get(name, "")))
+        paths.extend(((name, *tail), help_text) for tail, help_text in _command_paths(child))
     return tuple(paths)
 
 
@@ -156,9 +166,15 @@ def write_readme_cli_overview(repo_root: Path) -> None:
     text = path.read_text(encoding="utf-8")
     writer = GeneratedSectionWriter("readme-cli-overview")
     
-    lines = []
+    lines = [
+        "| Command | What it does |",
+        "|---|---|"
+    ]
     for command in commands:
-        lines.append(f"- `{command.text}`")
-        
+        if command.help_text:
+            lines.append(f"| `{command.text}` | {command.help_text} |")
+        else:
+            lines.append(f"| `{command.text}` | |")
+            
     new_text = writer.write_section(text, "\n".join(lines))
     path.write_text(new_text, encoding="utf-8")

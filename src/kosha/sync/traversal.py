@@ -184,8 +184,8 @@ def write_mcp_integration_doc(repo_root: Path) -> None:
     
     rows = render_mcp_tool_rows()
     lines = [
-        "| Tool | Signature |",
-        "|---|---|",
+        "| Tool | Signature | Returns |",
+        "|---|---|---|",
         *rows
     ]
     
