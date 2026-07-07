@@ -14,19 +14,21 @@ uv run kosha-mcp bundles/northwind
 KOSHA_BUNDLE=bundles/northwind uv run kosha-mcp
 ```
 
-On start it loads the bundle, builds the embedding index (for the jump), and serves the five tools over stdio. With neither an argument nor `KOSHA_BUNDLE`, it exits with a usage message.
+On start it loads the bundle, builds the embedding index (for the jump), and serves the registry tool surface over stdio. With neither an argument nor `KOSHA_BUNDLE`, it exits with a usage message.
 
 ## The traversal tools
 
-Inside the MCP surface, these five tools are the way to read the knowledge base. They mirror the hybrid retrieval path: **jump** near the answer, then **traverse** to expand and verify.
+Inside the MCP surface, these tools are the way to read the knowledge base. They mirror the hybrid retrieval path: **jump** near the answer, then **traverse** to expand and verify. Registry-mode signatures include `bundle_id`; the default `kosha-mcp` entry point serves the configured bundle as `default`.
 
 | Tool | Signature | Returns |
 |---|---|---|
-| `find_concepts` | `(query: str, k: int = 3)` | Ranked candidate `concept_id`s + descriptions (the embedding jump) |
-| `list_index` | `(scope: str = "")` | Structured listing of a directory's subdirectories and concepts (`""` is the root) |
-| `read_frontmatter` | `(concept_id: str)` | `type`, `title`, `description`, `tags`, `timestamp`, effective dates, `access_level` — no body |
-| `load_concept` | `(concept_id: str, asof: str \| None = None)` | Concept body, filtered to the claims in force |
-| `follow_links` | `(concept_id: str)` | Out-links and backlinks, each flagged present or dangling |
+| `list_bundles` | `()` | List bundle ids visible to the caller's configured clearance |
+| `list_index` | `(bundle_id: str, scope: str = '')` | List a bundle directory's direct contents (subdirectories + concepts) |
+| `read_frontmatter` | `(bundle_id: str, concept_id: str)` | Read a concept's frontmatter without its body |
+| `load_concept` | `(bundle_id: str, concept_id: str, asof: str \| None = None)` | Load a concept's body, showing only the claims currently in force |
+| `find_concepts` | `(bundle_id: str, query: str, k: int = 3)` | Jump to concepts within one addressed bundle, never across bundles |
+| `follow_links` | `(bundle_id: str, concept_id: str)` | List a concept's links and backlinks so you can traverse the graph |
+| `claim_history` | `(bundle_id: str, concept_id: str, claim_id: str \| None = None)` | Show a concept's claim lineage: full audit trail, or one claim's chain |
 
 ### The intended flow
 
@@ -65,9 +67,9 @@ Any MCP client that can launch a stdio server works. Register `kosha-mcp` as the
 }
 ```
 
-Point `command`/`args` at however you invoke the installed entry point in your environment (e.g. an absolute path to `kosha-mcp`), and give `KOSHA_BUNDLE` an absolute path. The server's tool list will appear as `find_concepts`, `list_index`, `read_frontmatter`, `load_concept`, `follow_links`.
+Point `command`/`args` at however you invoke the installed entry point in your environment (e.g. an absolute path to `kosha-mcp`), and give `KOSHA_BUNDLE` an absolute path. The server's tool list will appear as `list_bundles`, `find_concepts`, `list_index`, `read_frontmatter`, `load_concept`, `follow_links`, and `claim_history`.
 
-The server also advertises instructions telling the agent to answer by traversal, jump with `find_concepts`, peek with `read_frontmatter`, load only what it needs, and treat the traversal tools as the only knowledge interface.
+The server also advertises instructions telling the agent to answer by traversal, jump with `find_concepts`, peek with `read_frontmatter`, load only what it needs, inspect claim lineage with `claim_history` when an audit trail matters, and treat the traversal tools as the only knowledge interface.
 
 ## Temporal validity
 
@@ -122,7 +124,7 @@ Not every environment has MCP. The same traversal protocol ships as paste-in ins
 - **`AGENTS.md` fragment** — [`consumer/AGENTS.fragment.md`](../consumer/AGENTS.fragment.md). Paste into the consuming repo's `AGENTS.md`.
 - **Skill** — [`consumer/kosha-traversal/SKILL.md`](../consumer/kosha-traversal/SKILL.md). Drop into an agent's skill directory.
 
-Both are generated from a single source of truth (`kosha.mcp.fallback`), so the file-based protocol stays identical to the MCP tool surface. The rules in either case:
+Both are generated from a single source of truth (`kosha.mcp.fallback`), so the file-based protocol stays aligned with the bundle traversal surface. `list_bundles` remains server-only because a pasted fragment applies to the bundle repository it is installed in. The rules in either case:
 
 - **Do not grep, ripgrep, or full-text search** the bundle — traverse from `index.md` (and the embedding jump).
 - **Do not load the whole corpus** — stop as soon as the loaded concepts answer the question.
