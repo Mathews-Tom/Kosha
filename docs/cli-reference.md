@@ -324,6 +324,7 @@ uv run kosha recover reindex bundles/northwind --apply
 
 ```text
 kosha sync check [--json]
+kosha sync agent-fragment --target PATH --bundle PATH [--json]
 ```
 
 Run read-only deterministic public-surface checks. `sync check` exits `0` when generated/reference surfaces match their live sources and non-zero when any checked file drifts. It never writes files; later `sync docs`/`sync status` commands own repair.

@@ -198,6 +198,7 @@ Without MCP, the same protocol ships as an `AGENTS.md` fragment ([`consumer/AGEN
 | `kosha sync check` | Report generated public-surface drift without writing files. |
 | `kosha sync docs` | Write deterministic public-surface docs sections. |
 | `kosha sync status` | Write benchmark and status surfaces. |
+| `kosha sync agent-fragment` | Install or update the Kosha traversal fragment in an agent instruction file. |
 | `kosha release` | Tag a validated bundle as an immutable, reproducible release. |
 <!-- kosha:sync:end -->
 
