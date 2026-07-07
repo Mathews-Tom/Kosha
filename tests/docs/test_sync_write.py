@@ -7,7 +7,8 @@ from kosha.sync.cli_reference import (
     write_cli_reference,
     write_readme_cli_overview,
 )
-from kosha.sync.status_surfaces import write_readme_acceptance_table
+from kosha.sync.status_surfaces import write_gate0_status, write_readme_acceptance_table
+from kosha.sync.traversal import write_fallback_artifacts, write_mcp_integration_doc
 from kosha.sync.writer import GeneratedSectionWriter, MissingMarkerError
 
 
@@ -87,3 +88,43 @@ def test_write_readme_acceptance_table(tmp_path, monkeypatch):
 
     content = readme.read_text()
     assert "| ID | Objective | Status |" in content
+
+def test_write_gate0_status(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "kosha.sync.status_surfaces.render_gate_status_summary",
+        lambda rep: "mock expected summary",
+    )
+    monkeypatch.setattr("kosha.sync.status_surfaces.recorded_gate0_report", lambda: None)
+    gate0 = tmp_path / "docs/gate0-status.md"
+    gate0.parent.mkdir(exist_ok=True)
+    gate0.write_text(
+        "<!-- kosha:sync:start gate0-status -->\n"
+        "old\n"
+        "<!-- kosha:sync:end -->"
+    )
+    
+    write_gate0_status(tmp_path)
+    
+    assert "old" not in gate0.read_text()
+
+def test_write_mcp_integration_doc(tmp_path):
+    mcp_doc = tmp_path / "docs/mcp-integration.md"
+    mcp_doc.parent.mkdir(exist_ok=True)
+    mcp_doc.write_text(
+        "<!-- kosha:sync:start mcp-tool-table -->\n"
+        "old\n"
+        "<!-- kosha:sync:end -->"
+    )
+
+    write_mcp_integration_doc(tmp_path)
+
+    assert "| Tool | Signature |" in mcp_doc.read_text()
+
+
+def test_write_fallback_artifacts(tmp_path):
+    write_fallback_artifacts(tmp_path)
+
+    frag = tmp_path / "consumer/AGENTS.fragment.md"
+    skill = tmp_path / "consumer/kosha-traversal/SKILL.md"
+    assert frag.is_file()
+    assert skill.is_file()
