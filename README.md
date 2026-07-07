@@ -167,12 +167,26 @@ Without MCP, the same protocol ships as an `AGENTS.md` fragment ([`consumer/AGEN
 | Command | What it does |
 |---|---|
 | `kosha validate <bundle>` | OKF v0.1 conformance gate (exit ≠ 0 blocks merge) |
-| `kosha ingest <source> [--bundle] [--dry-run] [--yes] [--authority]` | Run the maintenance loop behind the approve gate |
 | `kosha bench [--bundle] [--report]` | Premise-validation retrieval benchmark (hybrid vs RAG vs long-context) |
 | `kosha bench acceptance [--bundle] [--report]` | Gate the five MVP success criteria (exit 0 iff all pass) |
-| `kosha bench realworld [--corpus] [--ingests] [--report]` | Real-model benchmark: loop vs tuned RAG vs prompt-only baselines |
 | `kosha bench corpus [--out]` | Regenerate the external stdlib benchmark corpus |
-| `kosha eval extract\|dedup\|merge\|relate\|contradict` | Score one LLM surface against seed labels |
+| `kosha bench realworld [--corpus] [--ingests] [--report]` | Real-model benchmark: loop vs tuned RAG vs prompt-only baselines |
+| `kosha calibrate [--labels] [--margin]` | Fit lexical decision thresholds to seed labels |
+| `kosha eval extract` | Score concept extraction against seed labels |
+| `kosha eval dedup` | Score dedup precision/recall and duplicate rate |
+| `kosha eval merge` | Score merge claim-targeting accuracy |
+| `kosha eval relate` | Score cross-link discovery precision/recall |
+| `kosha eval contradict` | Score contradiction-detection precision/recall/F1 |
+| `kosha ingest <source> [--bundle] [--dry-run] [--yes] [--authority]` | Run the maintenance loop behind the approve gate |
+| `kosha serve [--bundle] [--once]` | Serve traversal-only bundle access over a local HTTP/SSE boundary |
+| `kosha review-queue list <queue>` | Inspect BLOCK-lane review queue items |
+| `kosha review-queue decide <queue> <item_id> {approve,reject}` | Record BLOCK-lane decisions with a reviewer identity |
+| `kosha export <bundle> [--format] [--out]` | Export compliance-grade bundle audit evidence |
+| `kosha recover backups <bundle>` | List available ingest safety backup tags |
+| `kosha recover restore <bundle> --tag TAG` | Preview or apply a restore from a backup tag |
+| `kosha recover reindex <bundle>` | Preview or apply deterministic `index.md` regeneration |
+| `kosha sync check [--json]` | Check generated public surfaces against live source-of-truth data without writing |
+| `kosha release <bundle> --tag VERSION` | Tag a validated bundle as an immutable release |
 
 Full reference: [`docs/cli-reference.md`](docs/cli-reference.md).
 

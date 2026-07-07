@@ -3,10 +3,10 @@
 The `kosha` command is installed by `uv sync`; run it as `uv run kosha <command>`. A second entry point, `kosha-mcp`, runs the consumer MCP server ([MCP integration](mcp-integration.md)).
 
 ```text
-kosha [--version] [-h] {validate,bench,eval,ingest} ...
+kosha [--version] [-h] {validate,bench,calibrate,eval,ingest,serve,review-queue,export,recover,sync,release} ...
 ```
 
-With no subcommand, `kosha` prints help and exits 0. All commands resolve their model providers from the environment, defaulting to the offline local pair ([configuration](configuration.md)). `validate`, `bench` (+ `acceptance`/`realworld`), `calibrate`, `ingest`, and every `eval` suite accept `--json` to print a structured, script-parseable result instead of the text report — see [CI integration](ci-integration.md) for the packaged validate-on-PR action.
+With no subcommand, `kosha` prints help and exits 0. All commands resolve their model providers from the environment, defaulting to the offline local pair ([configuration](configuration.md)). `validate`, `bench` (+ `acceptance`/`corpus`/`realworld`), `calibrate`, `ingest`, `sync check`, and every `eval` suite accept `--json` where documented to print a structured, script-parseable result instead of the text report — see [CI integration](ci-integration.md) for the packaged validate-on-PR action.
 
 ---
 
@@ -121,6 +121,18 @@ Gate the five MVP success criteria on the golden corpus. **Exit code `0` iff eve
 uv run kosha bench acceptance --report ACCEPTANCE_REPORT.md
 ```
 
+### `kosha bench corpus`
+
+```text
+kosha bench corpus [--out PATH]
+```
+
+Regenerate the external stdlib benchmark corpus used by the real-world benchmark fixtures. The default output is `bundles/pydoc-stdlib`.
+
+```bash
+uv run kosha bench corpus --out bundles/pydoc-stdlib
+```
+
 ### `kosha bench realworld` — Gate-0 v2 re-run
 
 ```text
@@ -185,13 +197,13 @@ kosha eval {extract,dedup,merge,relate,contradict} [--labels PATH] [--json] [...
 
 Score one LLM surface against its seed label file. Each surface has its own suite so quality is measured independently. (Running `kosha eval` with no surface exits `2`.)
 
-| Subcommand | Scores | Default labels | Extra flags |
+| Command | Scores | Default labels | Extra flags |
 |---|---|---|---|
-| `extract` | concept extractor vs granularity labels | `labels/granularity_seed.jsonl` | — |
-| `dedup` | dedup precision/recall + repeated-ingest duplicate rate | `labels/dedup_seed.jsonl` | `--bundle` (default `bundles/northwind`) |
-| `merge` | merge claim-targeting accuracy | `labels/merge_seed.jsonl` | — |
-| `relate` | cross-linker link-discovery precision/recall/F1 | `labels/relate_seed.jsonl` | — |
-| `contradict` | contradiction detection precision/recall/F1 | `labels/contradict_seed.jsonl` | — |
+| `kosha eval extract` | concept extractor vs granularity labels | `labels/granularity_seed.jsonl` | — |
+| `kosha eval dedup` | dedup precision/recall + repeated-ingest duplicate rate | `labels/dedup_seed.jsonl` | `--bundle` (default `bundles/northwind`) |
+| `kosha eval merge` | merge claim-targeting accuracy | `labels/merge_seed.jsonl` | — |
+| `kosha eval relate` | cross-linker link-discovery precision/recall/F1 | `labels/relate_seed.jsonl` | — |
+| `kosha eval contradict` | contradiction detection precision/recall/F1 | `labels/contradict_seed.jsonl` | — |
 
 All five suites accept `--json` to print their metrics as structured JSON instead of the text summary (`contradict` includes the per-regime breakdown).
 
@@ -201,6 +213,44 @@ uv run kosha eval contradict
 ```
 
 The same suites run under pytest via `uv run pytest evals -q`.
+
+---
+
+## `kosha serve`
+
+```text
+kosha serve [--bundle PATH | --bundles-dir PATH] [--bundle-id ID]
+            [--bundle-access LABEL] [--allow-open-bundles]
+            [--clearance LABEL] [--host HOST] [--allow-non-loopback]
+            [--port PORT] [--once]
+```
+
+Serve traversal-only bundle access over a local HTTP/SSE boundary. By default it binds `127.0.0.1`, serves `bundles/northwind` as bundle id `default`, and refuses non-loopback binds unless `--allow-non-loopback` is explicit.
+
+```bash
+uv run kosha serve --bundle bundles/northwind --once
+```
+
+---
+
+## `kosha review-queue`
+
+```text
+kosha review-queue list <queue>
+kosha review-queue decide <queue> <item_id> {approve,reject} --reviewer REVIEWER
+```
+
+Inspect or record decisions in a shared BLOCK-lane review queue. `list` prints queued items and their decision counts; `decide` appends an approval or rejection with an explicit reviewer identity.
+
+---
+
+## `kosha export`
+
+```text
+kosha export <bundle> [--format json|markdown] [--out PATH] [--ref REF] [--include-source-text]
+```
+
+Export compliance-grade audit evidence for a bundle's Git history. The default output is JSON metadata for `HEAD`; `--include-source-text` is opt-in because committed source body text can be sensitive.
 
 ---
 
@@ -237,6 +287,21 @@ uv run kosha recover restore bundles/northwind --tag backup/2026-07-01 --apply -
 
 # Fix drifted index.md files after a hand-edit
 uv run kosha recover reindex bundles/northwind --apply
+```
+
+---
+
+## `kosha sync`
+
+```text
+kosha sync check [--json]
+```
+
+Run read-only deterministic public-surface checks. `sync check` exits `0` when generated/reference surfaces match their live sources and non-zero when any checked file drifts. It never writes files; later `sync docs`/`sync status` commands own repair.
+
+```bash
+uv run kosha sync check
+uv run kosha sync check --json
 ```
 
 ---
@@ -287,4 +352,5 @@ KOSHA_BUNDLE=bundles/northwind uv run kosha-mcp
 | `2` | `eval` invoked with no surface subcommand |
 | non-zero | `validate` — bundle has error-severity findings |
 | `2` | `recover` — unknown backup tag, not a bundle directory, or not a Git repository |
+| `1` | `sync check` — at least one public/generated surface drifted from source truth |
 | `1` | `release` — bundle not conformant, or the release tag already exists |
