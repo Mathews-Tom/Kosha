@@ -53,13 +53,26 @@ The two surfaces are independent — configure one, both, or neither.
 
 ## Fail-loud, never silent
 
-A base URL **without** its companion model is an error, not a silent fallback:
+Provider identity remains explicit in benchmark and status output, and Kosha never silently falls back to a different provider. A base URL **without** its companion model is an error, not a silent fallback:
 
 ```text
 KOSHA_EMBED_BASE_URL is set but KOSHA_EMBED_MODEL is missing
 ```
 
 `KOSHA_EMBED_DIM` must parse as an integer or it errors. This is deliberate: a half-configured provider should stop the run, not quietly degrade to the local default and produce surprising results.
+
+
+## Provider Diagnostics
+
+Use the doctor CLI to inspect the currently configured AI providers and environment variables:
+
+```bash
+kosha doctor providers
+```
+
+This command outputs deterministic local defaults if no configuration is present, or the active environment settings if configured. It checks for formatting issues (like trailing spaces or quotes) and reports missing companion variables or type mismatches (like a non-integer `KOSHA_EMBED_DIM`).
+
+To protect credentials, secret values like `KOSHA_EMBED_API_KEY` are always redacted in diagnostic output (e.g. `sk-a1b2...`).
 
 ## Server configuration
 
