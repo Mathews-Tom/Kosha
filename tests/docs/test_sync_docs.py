@@ -29,6 +29,7 @@ import pytest
 import yaml
 
 from kosha.sync.cli_reference import CLI_REFERENCE_PATH, README_PATH
+from kosha.sync.public_claims import find_banned_claims, normalize_claim_line, public_doc_paths
 from kosha.sync.state import SYNC_STATE_RELATIVE_PATH
 from kosha.sync.status_surfaces import GATE0_STATUS_PATH
 from kosha.sync.traversal import FALLBACK_FRAGMENT_PATH, FALLBACK_SKILL_PATH, MCP_DOC_PATH
@@ -271,3 +272,118 @@ def test_workflow_add_paths_scoped_exactly_to_generated_public_surfaces() -> Non
 @pytest.mark.parametrize("banned_path", BANNED_BROAD_OR_UNRELATED_PATHS)
 def test_workflow_add_paths_excludes_broad_or_unrelated_trees(banned_path: str) -> None:
     assert banned_path not in _add_paths(_load_workflow())
+
+
+# ---------------------------------------------------------------------------
+# M6 PR-2: docs/sync.md is the sync operations guide the workflow example
+# points operators at. It must document the full command boundary (all four
+# `sync` subcommands plus validate/ingest/serve/doctor providers), point back
+# at the scheduled workflow example above, restate the same no-ingest/
+# no-bundle-mutation/no-auto-approval guarantees the workflow enforces
+# structurally, and stay inside the M1 public-claim boundary the sync
+# checker polices.
+# ---------------------------------------------------------------------------
+
+GUIDE_RELATIVE_PATH = Path("docs/sync.md")
+GUIDE_PATH = REPO_ROOT / GUIDE_RELATIVE_PATH
+
+GUIDE_DOCUMENTED_COMMANDS = (
+    "kosha sync check",
+    "kosha sync docs",
+    "kosha sync status",
+    "kosha sync agent-fragment",
+    "kosha validate",
+    "kosha ingest",
+    "kosha serve",
+    "kosha doctor providers",
+)
+
+
+def _guide_text() -> str:
+    return GUIDE_PATH.read_text(encoding="utf-8")
+
+
+def _guide_normalized_text() -> str:
+    # Strip markdown emphasis/code markers the same way the public-claim
+    # scanner does, so a formatting-only change (dropping backticks, adding
+    # bold) never breaks a content assertion below.
+    return "\n".join(normalize_claim_line(line) for line in _guide_text().splitlines())
+
+
+def test_sync_guide_exists_directly_under_docs() -> None:
+    assert GUIDE_PATH.is_file()
+    assert GUIDE_PATH.parent == REPO_ROOT / "docs"
+
+
+@pytest.mark.parametrize("command", GUIDE_DOCUMENTED_COMMANDS)
+def test_sync_guide_documents_every_command_in_the_boundary(command: str) -> None:
+    assert command in _guide_normalized_text()
+
+
+def test_sync_guide_references_the_scheduled_workflow_example() -> None:
+    assert str(WORKFLOW_RELATIVE_PATH) in _guide_text()
+
+
+# ---------------------------------------------------------------------------
+# Scope guarantees: the guide must keep asserting the boundaries the
+# workflow example enforces structurally, so a reader can't come away
+# believing scheduled sync mutates bundles or grants approval.
+# ---------------------------------------------------------------------------
+
+
+def test_sync_guide_states_sync_is_not_an_ingest_workflow() -> None:
+    assert re.search(r"not an ingest workflow", _guide_normalized_text(), flags=re.IGNORECASE)
+
+
+def test_sync_guide_states_sync_does_not_change_an_okf_bundle() -> None:
+    assert re.search(
+        r"does not change an okf bundle",
+        _guide_normalized_text(),
+        flags=re.IGNORECASE,
+    )
+
+
+def test_sync_guide_states_scheduled_sync_does_not_run_ingest() -> None:
+    assert re.search(r"does not run kosha ingest", _guide_normalized_text(), flags=re.IGNORECASE)
+
+
+def test_sync_guide_states_scheduled_sync_does_not_pass_yes() -> None:
+    assert re.search(r"does not pass --yes", _guide_normalized_text(), flags=re.IGNORECASE)
+
+
+def test_sync_guide_states_scheduled_sync_does_not_stage_bundle_paths() -> None:
+    assert re.search(r"does not stage bundle paths", _guide_normalized_text(), flags=re.IGNORECASE)
+
+
+def test_sync_guide_never_directs_staging_the_bundles_directory() -> None:
+    assert "bundles/" not in _guide_text()
+
+
+def test_sync_guide_states_scheduled_sync_does_not_approve_block_lane_changes() -> None:
+    assert re.search(r"does not approve block-lane", _guide_normalized_text(), flags=re.IGNORECASE)
+
+
+def test_sync_guide_states_scheduled_workflows_must_not_approve_block_lane_changes() -> None:
+    assert re.search(r"must not approve block-lane", _guide_normalized_text(), flags=re.IGNORECASE)
+
+
+def test_sync_guide_never_claims_automatic_or_auto_approval() -> None:
+    lowered = _guide_text().lower()
+    assert "auto-approv" not in lowered
+    assert "automatically approv" not in lowered
+
+
+# ---------------------------------------------------------------------------
+# Public-claim boundary: docs/sync.md is new prose under docs/ and must stay
+# inside the corpus the M1 scanner polices, both by remaining discoverable
+# and by carrying no banned claim itself.
+# ---------------------------------------------------------------------------
+
+
+def test_sync_guide_is_included_in_the_scanned_public_claim_corpus() -> None:
+    assert GUIDE_PATH in public_doc_paths(REPO_ROOT)
+
+
+def test_sync_guide_has_no_banned_public_claims() -> None:
+    violations = find_banned_claims(_guide_text())
+    assert not violations, f"banned public claim(s) in {GUIDE_RELATIVE_PATH}: {violations}"
