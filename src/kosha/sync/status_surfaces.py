@@ -17,6 +17,7 @@ from kosha.bench.realworld.status import render_gate_status_summary
 from kosha.okf import load_bundle
 from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
 from kosha.sync.check import SyncMismatch
+from kosha.sync.writer import GeneratedSectionWriter
 
 README_PATH = Path("README.md")
 GATE0_STATUS_PATH = Path("docs/gate0-status.md")
@@ -197,3 +198,24 @@ def _require_match(text: str, pattern: str, criterion_id: str) -> tuple[str, ...
 
 def _missing_file(surface: str, path: Path) -> SyncMismatch:
     return SyncMismatch(surface=surface, path=path, message="expected status surface is missing")
+
+
+def write_readme_acceptance_table(repo_root: Path) -> None:
+    path = repo_root / Path("README.md")
+    if not path.is_file():
+        return
+        
+    report = run_default_acceptance_report(repo_root)
+    rows = render_readme_acceptance_rows(report)
+    
+    text = path.read_text(encoding="utf-8")
+    writer = GeneratedSectionWriter("readme-acceptance-table")
+    
+    lines = [
+        "| ID | Objective | Status |",
+        "|---|---|---|",
+        *rows
+    ]
+    
+    new_text = writer.write_section(text, "\n".join(lines))
+    path.write_text(new_text, encoding="utf-8")

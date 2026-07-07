@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from kosha.sync.check import SyncMismatch
+from kosha.sync.writer import GeneratedSectionWriter
 
 CLI_REFERENCE_PATH = Path("docs/cli-reference.md")
 README_PATH = Path("README.md")
@@ -123,3 +124,41 @@ def _missing_file(surface: str, path: Path) -> SyncMismatch:
         path=path,
         message="expected public CLI surface is missing",
     )
+
+
+def write_cli_reference(repo_root: Path) -> None:
+    from kosha.cli import build_parser
+
+    commands = live_cli_commands(build_parser())
+    path = repo_root / CLI_REFERENCE_PATH
+    if not path.is_file():
+        return
+    
+    text = path.read_text(encoding="utf-8")
+    writer = GeneratedSectionWriter("cli-reference")
+    
+    lines = ["```text", render_cli_synopsis(commands)]
+    for command in commands:
+        lines.append(command.text)
+    lines.append("```")
+    
+    new_text = writer.write_section(text, "\n".join(lines))
+    path.write_text(new_text, encoding="utf-8")
+
+def write_readme_cli_overview(repo_root: Path) -> None:
+    from kosha.cli import build_parser
+
+    commands = live_cli_commands(build_parser())
+    path = repo_root / README_PATH
+    if not path.is_file():
+        return
+        
+    text = path.read_text(encoding="utf-8")
+    writer = GeneratedSectionWriter("readme-cli-overview")
+    
+    lines = []
+    for command in commands:
+        lines.append(f"- `{command.text}`")
+        
+    new_text = writer.write_section(text, "\n".join(lines))
+    path.write_text(new_text, encoding="utf-8")
