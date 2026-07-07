@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+from kosha.sync.decision import (
+    SyncDecision,
+    SyncDecisionError,
+    SyncDecisionReason,
+    current_git_head,
+    decide_sync,
+    source_changes_after_timestamp,
+    source_changes_since,
+)
 from kosha.sync.snapshot import ContentSnapshot, SnapshotEntry, SnapshotError, content_snapshot
 from kosha.sync.state import (
     InvalidSyncStateError,
@@ -18,9 +27,16 @@ __all__ = [
     "ProviderState",
     "SnapshotEntry",
     "SnapshotError",
+    "SyncDecision",
+    "SyncDecisionError",
+    "SyncDecisionReason",
     "SyncState",
     "content_snapshot",
+    "current_git_head",
+    "decide_sync",
     "load_sync_state",
     "save_sync_state",
+    "source_changes_after_timestamp",
+    "source_changes_since",
     "sync_state_path",
 ]
