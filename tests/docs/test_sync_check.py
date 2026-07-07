@@ -15,21 +15,25 @@ checked-in ``docs/cli-reference.md``/``README.md``. These tests cover:
   catching a missing command in either ``docs/cli-reference.md`` or the
   README CLI overview table.
 
-Other checkers (Gate-0/README status table, fallback/MCP, public-claim
-integration) are out of scope here.
+Other checkers (fallback/MCP, public-claim integration) are out of scope
+here; PR-3 adds ``check_gate0_status`` (Gate-0 verdict sentence drift) and
+``check_readme_acceptance_table`` (README deterministic self-consistency
+table drift), covered below alongside ``check_status_surfaces`` and the
+``default_sync_checkers`` wiring.
 """
-
-from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 
 import pytest
 
+from kosha.bench.realworld.status import render_gate_status_summary
 from kosha.cli import build_parser, main
 from kosha.sync import (
     SyncMismatch,
+    default_sync_checkers,
     render_sync_check_text,
     run_sync_check,
     sync_check_json,
@@ -40,6 +44,16 @@ from kosha.sync.cli_reference import (
     check_cli_reference,
     live_cli_commands,
     render_cli_synopsis,
+)
+from kosha.sync.status_surfaces import (
+    DEFAULT_ACCEPTANCE_BUNDLE,
+    GATE0_STATUS_PATH,
+    check_gate0_status,
+    check_readme_acceptance_table,
+    check_status_surfaces,
+    recorded_gate0_report,
+    render_readme_acceptance_rows,
+    run_default_acceptance_report,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -204,6 +218,108 @@ def test_check_cli_reference_flags_a_command_missing_from_readme_overview(
     assert mismatch.surface == "readme-cli-overview"
     assert mismatch.path == tmp_path / README_PATH
     assert "missing live command: kosha eval dedup" in mismatch.details
+
+
+# ---------------------------------------------------------------------------
+# check_gate0_status: docs/gate0-status.md "Current public verdict" drift
+# against render_gate_status_summary(recorded_gate0_report()).
+# ---------------------------------------------------------------------------
+
+
+def test_check_gate0_status_returns_no_mismatches_for_the_recorded_verdict() -> None:
+    assert check_gate0_status(REPO_ROOT) == ()
+
+
+def test_check_gate0_status_flags_a_drifted_verdict_sentence_in_the_status_doc(
+    tmp_path: Path,
+) -> None:
+    expected_summary = render_gate_status_summary(recorded_gate0_report())
+    status_text = (REPO_ROOT / GATE0_STATUS_PATH).read_text(encoding="utf-8")
+    assert expected_summary in status_text
+
+    drifted_summary = expected_summary.replace("halted", "HALTED (drift)")
+    drifted_text = status_text.replace(expected_summary, drifted_summary)
+    assert expected_summary not in drifted_text
+
+    (tmp_path / GATE0_STATUS_PATH.parent).mkdir(parents=True)
+    (tmp_path / GATE0_STATUS_PATH).write_text(drifted_text, encoding="utf-8")
+
+    mismatches = check_gate0_status(tmp_path)
+
+    assert len(mismatches) == 1
+    mismatch = mismatches[0]
+    assert mismatch.surface == "gate0-status"
+    assert mismatch.path == tmp_path / GATE0_STATUS_PATH
+    assert mismatch.details == (expected_summary,)
+
+
+# ---------------------------------------------------------------------------
+# render_readme_acceptance_rows / check_readme_acceptance_table: README's
+# deterministic self-consistency table drift against run_acceptance output.
+# ---------------------------------------------------------------------------
+
+
+def test_render_readme_acceptance_rows_produces_rows_present_in_the_readme() -> None:
+    report = run_default_acceptance_report(REPO_ROOT)
+    rows = render_readme_acceptance_rows(report)
+
+    assert len(rows) == len(report.criteria)
+    assert len(rows) >= 5
+    readme_text = (REPO_ROOT / README_PATH).read_text(encoding="utf-8")
+    for row in rows:
+        assert row in readme_text
+
+
+def _copy_reference_bundle(tmp_path: Path) -> None:
+    shutil.copytree(
+        REPO_ROOT / DEFAULT_ACCEPTANCE_BUNDLE, tmp_path / DEFAULT_ACCEPTANCE_BUNDLE
+    )
+
+
+def test_check_readme_acceptance_table_returns_no_mismatches_for_aligned_repo_docs() -> None:
+    assert check_readme_acceptance_table(REPO_ROOT) == ()
+
+
+def test_check_readme_acceptance_table_flags_a_missing_deterministic_status_row(
+    tmp_path: Path,
+) -> None:
+    _copy_reference_bundle(tmp_path)
+    rows = render_readme_acceptance_rows(run_default_acceptance_report(REPO_ROOT))
+    dropped_row = rows[0]
+
+    readme_text = (REPO_ROOT / README_PATH).read_text(encoding="utf-8")
+    assert dropped_row in readme_text
+    drifted_readme = readme_text.replace(dropped_row, "")
+    assert dropped_row not in drifted_readme
+    (tmp_path / README_PATH).write_text(drifted_readme, encoding="utf-8")
+
+    mismatches = check_readme_acceptance_table(tmp_path)
+
+    assert len(mismatches) == 1
+    mismatch = mismatches[0]
+    assert mismatch.surface == "readme-acceptance-table"
+    assert mismatch.path == tmp_path / README_PATH
+    assert mismatch.details == (f"missing row: {dropped_row}",)
+
+
+# ---------------------------------------------------------------------------
+# check_status_surfaces: both status-surface checkers wired together.
+# ---------------------------------------------------------------------------
+
+
+def test_check_status_surfaces_returns_no_mismatches_for_aligned_repo_docs() -> None:
+    assert check_status_surfaces(REPO_ROOT) == ()
+
+
+# ---------------------------------------------------------------------------
+# default_sync_checkers: PR-3 wires the status-surface checker in alongside
+# the CLI reference checker.
+# ---------------------------------------------------------------------------
+
+
+def test_default_sync_checkers_includes_cli_reference_and_status_surface_checkers() -> None:
+    checker_names = {checker.__name__ for checker in default_sync_checkers()}
+    assert {"check_cli_reference", "check_status_surfaces"} <= checker_names
 
 
 # ---------------------------------------------------------------------------
