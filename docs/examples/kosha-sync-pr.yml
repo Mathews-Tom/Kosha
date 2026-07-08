@@ -1,0 +1,60 @@
+# Copy this file to .github/workflows/kosha-sync-pr.yml to enable it.
+# It is documentation only while it lives under docs/examples/.
+name: Kosha generated-surface sync
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-generated-surfaces:
+    name: Sync deterministic public surfaces
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Kosha with locked dependencies
+        run: uv sync --locked
+
+      - name: Rewrite generated documentation surfaces
+        run: |
+          uv run kosha sync docs
+          uv run kosha sync status
+
+      - name: Verify generated surfaces and provider diagnostics
+        run: |
+          uv run kosha sync check
+          uv run kosha doctor providers
+
+      - name: Open pull request for generated surfaces only
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: kosha/sync-generated-surfaces
+          delete-branch: true
+          commit-message: "docs(sync): refresh generated Kosha surfaces"
+          title: "docs(sync): refresh generated Kosha surfaces"
+          body: |
+            Automated deterministic Kosha sync for generated public surfaces only.
+
+            This PR is limited to checked-in files produced by `kosha sync docs` and `kosha sync status`. It does not run `kosha ingest`, does not mutate OKF bundles, and does not approve BLOCK-lane knowledge changes.
+          add-paths: |
+            README.md
+            docs/cli-reference.md
+            docs/gate0-status.md
+            docs/mcp-integration.md
+            consumer/AGENTS.fragment.md
+            consumer/kosha-traversal/SKILL.md
+            .kosha/sync-state.json
