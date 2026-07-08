@@ -73,3 +73,5 @@ It opens a pull request for generated public surfaces only. It does not run `kos
 Generated status text must stay tied to recorded reports. Do not add new public claims about real-model quality, provider performance, or traversal guarantees unless a checked-in source artifact backs the claim and `kosha sync check` plus `tests/docs/test_public_claims.py` pass.
 
 The current public product boundary remains: deterministic mechanics are verified locally, real-model Gate-0 recorded a NO-GO, M14+ product expansion remains halted, and host sessions with generic filesystem tools are not sandboxed by Kosha today.
+
+Future agent-authored prose changes must follow the source-change → doc → edit → evidence mapping in [Docs-impact policy](docs-impact-policy.md) before any write.

@@ -387,3 +387,138 @@ def test_sync_guide_is_included_in_the_scanned_public_claim_corpus() -> None:
 def test_sync_guide_has_no_banned_public_claims() -> None:
     violations = find_banned_claims(_guide_text())
     assert not violations, f"banned public claim(s) in {GUIDE_RELATIVE_PATH}: {violations}"
+
+
+# ---------------------------------------------------------------------------
+# M6 PR-3: docs/docs-impact-policy.md is the gate for future agent-authored
+# docs prose. It must state the impact-plan table's source-change ->
+# affected-document -> required-edit -> evidence -> mode concept, the
+# deterministic-or-agent-authored chain, block broad rewrites,
+# formatting-only edits, unsupported public/real-model claims, an
+# unhalted-M14+ claim, a sandboxed-filesystem claim, `kosha ingest --yes`,
+# scheduled-sync bundle staging, and BLOCK-lane approval, and list the full
+# required-checks command boundary -- including this file's own targeted
+# test command.
+# ---------------------------------------------------------------------------
+
+POLICY_RELATIVE_PATH = Path("docs/docs-impact-policy.md")
+POLICY_PATH = REPO_ROOT / POLICY_RELATIVE_PATH
+
+POLICY_IMPACT_PLAN_CHAIN = (
+    "source change -> affected document -> required edit -> evidence -> "
+    "deterministic or agent-authored"
+)
+
+POLICY_IMPACT_PLAN_COLUMNS = (
+    "Source change",
+    "Affected document",
+    "Required edit",
+    "Evidence",
+    "Mode",
+)
+
+# Every phrase below is a substring of one "Blocked changes" bullet in the
+# policy (normalized + lowercased), so a dropped rule -- not just a dropped
+# bullet marker -- fails the matching test.
+POLICY_BLOCKED_RULES = (
+    "broad rewrites",
+    "formatting-only edits",
+    "public claims without source evidence",
+    "real-model quality unless backed by a checked-in recorded report",
+    "m14+ product expansion is unhalted without a new recorded go decision",
+    "host sessions with generic filesystem tools are sandboxed by kosha today",
+    "kosha ingest --yes",
+    "stages bundle files from scheduled sync",
+    "approves block-lane knowledge changes",
+)
+
+POLICY_REQUIRED_CHECKS = (
+    "uv run pytest tests/docs/test_sync_docs.py tests/docs/test_public_claims.py -q",
+    "uv run kosha sync check",
+    "uv run kosha doctor providers",
+    "uv run ruff check",
+    "uv run mypy --strict src",
+    "uv run pytest -q",
+    "uv run kosha validate tests/fixtures/good_bundle",
+)
+
+
+def _policy_text() -> str:
+    return POLICY_PATH.read_text(encoding="utf-8")
+
+
+def _policy_normalized_text() -> str:
+    return "\n".join(normalize_claim_line(line) for line in _policy_text().splitlines())
+
+
+def test_docs_impact_policy_exists_directly_under_docs() -> None:
+    assert POLICY_PATH.is_file()
+    assert POLICY_PATH.parent == REPO_ROOT / "docs"
+
+
+@pytest.mark.parametrize("column", POLICY_IMPACT_PLAN_COLUMNS)
+def test_docs_impact_policy_impact_plan_names_every_required_column(column: str) -> None:
+    assert column in _policy_normalized_text()
+
+
+def test_docs_impact_policy_impact_plan_row_names_both_modes() -> None:
+    normalized = _policy_normalized_text()
+    assert "deterministic" in normalized
+    assert "agent-authored" in normalized
+
+
+def test_docs_impact_policy_states_the_deterministic_or_agent_authored_chain() -> None:
+    # The literal chain lives in a fenced ```text block (no markdown emphasis
+    # or code-span markers to strip), so the raw text is the right window.
+    assert POLICY_IMPACT_PLAN_CHAIN in _policy_text()
+
+
+@pytest.mark.parametrize("blocked_rule", POLICY_BLOCKED_RULES)
+def test_docs_impact_policy_blocks_required_rule(blocked_rule: str) -> None:
+    assert blocked_rule in _policy_normalized_text().lower()
+
+
+@pytest.mark.parametrize("required_check", POLICY_REQUIRED_CHECKS)
+def test_docs_impact_policy_lists_required_check(required_check: str) -> None:
+    assert required_check in _policy_text()
+
+
+# ---------------------------------------------------------------------------
+# Public-claim boundary: docs/docs-impact-policy.md is new prose under docs/
+# and must stay inside the corpus the M1 scanner polices, both by remaining
+# discoverable and by carrying no banned claim itself.
+# ---------------------------------------------------------------------------
+
+
+def test_docs_impact_policy_is_included_in_the_scanned_public_claim_corpus() -> None:
+    assert POLICY_PATH in public_doc_paths(REPO_ROOT)
+
+
+def test_docs_impact_policy_has_no_banned_public_claims() -> None:
+    violations = find_banned_claims(_policy_text())
+    assert not violations, f"banned public claim(s) in {POLICY_RELATIVE_PATH}: {violations}"
+
+
+# ---------------------------------------------------------------------------
+# Final references: README's documentation index and docs/sync.md must both
+# stay wired to the new policy, so a reader following either path finds it.
+# Matching only the parenthesized link target (not the link text or the
+# surrounding table-row prose) keeps this from breaking on a harmless
+# wording tweak while still failing the moment the wiring itself drops.
+# ---------------------------------------------------------------------------
+
+
+def _readme_text() -> str:
+    return (REPO_ROOT / README_PATH).read_text(encoding="utf-8")
+
+
+def test_readme_documentation_index_links_the_sync_guide() -> None:
+    assert "(docs/sync.md)" in _readme_text()
+
+
+def test_readme_documentation_index_links_the_docs_impact_policy() -> None:
+    assert "(docs/docs-impact-policy.md)" in _readme_text()
+
+
+def test_sync_guide_links_to_the_docs_impact_policy() -> None:
+    assert "(docs-impact-policy.md)" in _guide_text()
