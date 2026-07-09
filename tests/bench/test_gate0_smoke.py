@@ -107,3 +107,69 @@ def test_s2v3_offline_smoke_exits_zero_and_records_a_verdict(tmp_path: Path) -> 
     assert code == 0
     text = report_path.read_text(encoding="utf-8")
     assert "**Verdict: GO**" in text or "**Verdict: NO-GO**" in text
+
+
+def test_s2v3_offline_smoke_is_deterministic(tmp_path: Path) -> None:
+    if not S2V3_CORPUS.exists():
+        pytest.skip("s2v3 corpus not ready")
+    # Same determinism contract as the default-corpus smoke (M2 PR-4): local
+    # providers must reproduce a byte-identical report on the second-corpus
+    # path too, not just the default pydoc-stdlib path.
+    common = {
+        "ingests": 5,
+        "max_queries": 6,
+        "corpus": S2V3_CORPUS,
+        "queries": S2V3_QUERIES,
+        "maintenance": S2V3_MAINTENANCE,
+    }
+    first = tmp_path / "first.md"
+    second = tmp_path / "second.md"
+    assert _run_cli(first, **common) == 0
+    assert _run_cli(second, **common) == 0
+    assert first.read_text(encoding="utf-8") == second.read_text(encoding="utf-8")
+
+
+def test_s2v3_offline_smoke_records_the_provider_matrix(tmp_path: Path) -> None:
+    if not S2V3_CORPUS.exists():
+        pytest.skip("s2v3 corpus not ready")
+    # The Setup section must carry the M3 PR-1/PR-2 provider-matrix fields
+    # (provider identity plus its diagnostic source) on the second-corpus
+    # report path, not only on the default pydoc-stdlib path.
+    report_path = tmp_path / "S2V3_REPORT.md"
+    code = _run_cli(
+        report_path,
+        ingests=5,
+        max_queries=6,
+        corpus=S2V3_CORPUS,
+        queries=S2V3_QUERIES,
+        maintenance=S2V3_MAINTENANCE,
+    )
+    assert code == 0
+    text = report_path.read_text(encoding="utf-8")
+    assert "Embedding provider: `lexical-hash-256` (default offline)" in text
+    assert "Generation provider: `extractive-3` (default offline)" in text
+
+
+def test_s2v3_full_scale_run_without_real_providers_warns_instead_of_a_silent_verdict(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    if not S2V3_CORPUS.exists():
+        pytest.skip("s2v3 corpus not ready")
+    # Mirrors test_full_scale_run_without_real_providers_warns_instead_of_a_silent_verdict
+    # on the second corpus: the S2-v3 path is the one the paper's Gate-0
+    # claims are pinned to, so a full-scale (>=MIN_INGESTS) local-provider
+    # attempt against it must not silently drift into a recorded verdict
+    # either -- it has to loudly warn and mark the report INVALID.
+    report_path = tmp_path / "report.md"
+    code = _run_cli(
+        report_path,
+        ingests=50,
+        max_queries=6,
+        corpus=S2V3_CORPUS,
+        queries=S2V3_QUERIES,
+        maintenance=S2V3_MAINTENANCE,
+    )
+    assert code == 0
+    assert "NOT a valid Gate-0 verdict" in capsys.readouterr().err
+    text = report_path.read_text(encoding="utf-8")
+    assert "**Verdict: INVALID (local providers)**" in text
