@@ -17,13 +17,16 @@ Kosha has two separate evidence tracks. The deterministic local-provider gates v
 | M13 Gate-0 (`276d240`, 2026-06-29) | bge-m3 + gpt-4o-mini, 680-concept `pydoc-stdlib`, 50 sequential ingests | **NO-GO** — maintenance accuracy 0.50 vs prompt-only 0.79; contradiction routing 0.17 vs 1.00 |
 | M13 reframed (`52f1fdf`, 2026-06-29) | Same corpus and provider, safety-margin criterion | **NO-GO** — safety tied prompt-only at 1.00 vs 1.00, below the required +0.25 margin; routing reached parity after S1 but did not reopen Gate 0 |
 | S2 Gate-0 v2 (`3b46983`, 2026-06-29) | 2 embeddings × 2 generation models × 3 runs, 108 held-out contradictions across 6 regimes; cross-vendor smoke with llama-3.3-70b | **NO-GO** — loop detection and safety trailed prompt-only by 0.28–0.33 on every provider cell; M14+ stays halted |
+| S2-v3 Gate-0 (`034408d`, 2026-07-09) | openai:bge-m3 + openai:google/gemini-2.5-flash-lite, 2-concept corpus, 50 sequential ingests | **NO-GO** — loop safety 0.00 vs prompt-only 0.00 (delta +0.00, margin 0.25); loop silent overwrites 0 |
+
+S2-v3 replicated the pre-registered protocol on a second, non-Python-docs corpus (`bundles/paper-s2v3-corpus`) with a real cross-vendor generation model (`google/gemini-2.5-flash-lite` via OpenRouter) — the hard-blocking generalization check DEVELOPMENT_PLAN.md M3 required. Its held-out sample was thin: 1 held-out query and 0 contradiction cases, so the 0.00 safety rate reflects an empty sample rather than a measured loss, and neither the retrieval nor the safety numbers from this run support a claim in either direction. It is recorded here for completeness under the pre-registered criteria; the 108-case S2 Gate-0 v2 run remains the operative safety evidence.
 
 ## Boundary of the claim
 
-Kosha's verified differentiator is the governance guarantee: zero silent overwrites in the S2 run, replayable claim lineage, and branch-per-ingest provenance. That guarantee is real and prompt-only baselines do not provide an equivalent audit trail.
+Kosha's verified differentiator is the governance guarantee: zero silent overwrites across the S2 and S2-v3 runs, replayable claim lineage, and branch-per-ingest provenance. That guarantee is real and prompt-only baselines do not provide an equivalent audit trail.
 
-Kosha does **not** currently claim decision-quality superiority over a good prompt. The real-model Gate-0 runs found the opposite for the measured decision-quality axes. Future work can attempt to reopen Gate 0, but production-loop expansion stays halted until the pre-registered criterion records a GO.
+Kosha does **not** currently claim decision-quality superiority over a good prompt. The real-model Gate-0 runs found the opposite for the measured decision-quality axes. Future work can attempt to reopen Gate 0, but production-loop expansion stays halted until the pre-registered criterion records a GO. S2-v3's second-corpus replication did not change this boundary.
 
-Kosha does **not** currently claim retrieval superiority over real-world RAG systems. The deterministic hybrid-vs-RAG numbers are internal self-consistency checks on toy providers, not a real-model superiority claim.
+Kosha does **not** currently claim retrieval superiority over real-world RAG systems. The deterministic hybrid-vs-RAG numbers are internal self-consistency checks on toy providers, not a real-model superiority claim. S2-v3's single held-out query against real providers is too small a sample to support a retrieval claim either.
 
 Kosha also does **not** claim that a host agent with generic filesystem tools is unable to search files. The shipped MCP server exposes traversal tools and no raw-text search endpoint. The file-based fallback gives traversal instructions. Only a future sandboxed serving boundary can enforce that the agent's filesystem access terminates at Kosha.
