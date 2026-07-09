@@ -25,7 +25,7 @@ The unit Kosha produces is a **conformant OKF bundle**: a directory of Markdown 
 
 Version `0.1.0`.
 
-**Deterministic self-consistency gate** — runs offline with local providers (`lexical-hash-256` embeddings, `extractive-3` generation) on the reference corpus (`bundles/northwind`); currently **passes**:
+**Internal self-consistency gate** — these deterministic toy-provider figures verify reproducible mechanics on the bundled reference corpus (`bundles/northwind`), not a claim of real-world RAG outperformance or real-model decision quality. Currently **passes**:
 
 <!-- kosha:sync:start readme-acceptance-table -->
 | Criterion | Result |
@@ -34,7 +34,7 @@ Version `0.1.0`.
 | KS2 latency holds on depth 5 bundle | **PASS** — depth 5; 67 vs 86 tokens-per-recall |
 | Duplicate-rate ~= 0 after repeated ingests | **PASS** — re-ingesting 12 concepts -> 0 create / 12 update |
 | Fidelity preserved across >=20 sequential ingests | **PASS** — no edit-drift across 20 sequential ingests |
-| Contradictions resolved-or-escalated, 0 silent overwrites | **PASS** — 12/12 handled; 0 silent overwrites |
+| Contradictions resolved-or-escalated | **PASS** — 12/12 handled; zero silent overwrite verified as a design invariant |
 <!-- kosha:sync:end -->
 
 These figures verify deterministic mechanics, not real-model decision quality; reproduce with `uv run kosha bench acceptance`.
