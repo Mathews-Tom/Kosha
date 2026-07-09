@@ -24,6 +24,8 @@ LABEL_FILES = (DEDUP, GRANULARITY, MERGE, RELATE, CONTRADICT)
 REALWORLD_FILES = (
     ROOT / "evals" / "realworld" / "queries.jsonl",
     ROOT / "evals" / "realworld" / "maintenance.jsonl",
+    ROOT / "evals" / "paper_s2v3" / "queries.jsonl",
+    ROOT / "evals" / "paper_s2v3" / "maintenance.jsonl",
 )
 
 
