@@ -42,6 +42,13 @@ export KOSHA_GEN_BASE_URL=https://api.openai.com/v1
 export KOSHA_GEN_MODEL=gpt-4o-mini
 export KOSHA_GEN_API_KEY=sk-...
 
+
+# Cheap OpenRouter generation, local embeddings
+export OPENROUTER_API_KEY=sk-or-...
+export KOSHA_GEN_BASE_URL=https://openrouter.ai/api/v1
+export KOSHA_GEN_MODEL=google/gemini-2.5-flash-lite
+export KOSHA_GEN_API_KEY="${OPENROUTER_API_KEY}"
+
 # Fully local via Ollama for both surfaces
 export KOSHA_EMBED_BASE_URL=http://localhost:11434/v1
 export KOSHA_EMBED_MODEL=nomic-embed-text
@@ -50,6 +57,34 @@ export KOSHA_GEN_MODEL=llama3.1
 ```
 
 The two surfaces are independent — configure one, both, or neither.
+
+### `.env` workflow
+
+The repository includes `.env.example` as a complete template for the provider environment. Copy it to `.env`, uncomment the variables you need, fill in local values, and source it before running provider-sensitive commands:
+
+```bash
+cp .env.example .env
+source .env
+uv run kosha doctor providers
+```
+
+Kosha reads the process environment only; it does not automatically load `.env`. This keeps CI and shell sessions explicit. The local `.env` file is ignored by git and must not be committed with real API keys.
+
+Leave a `*_BASE_URL` unset to use the deterministic local provider for that surface. Set a `*_BASE_URL` only when the companion `*_MODEL` is also set. Do not include `/embeddings` or `/chat/completions` in the base URL; Kosha appends those paths internally.
+
+For a cheap OpenRouter-backed generation run, leave embeddings unset and configure only generation:
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+export KOSHA_GEN_BASE_URL=https://openrouter.ai/api/v1
+export KOSHA_GEN_MODEL=google/gemini-2.5-flash-lite
+export KOSHA_GEN_API_KEY="${OPENROUTER_API_KEY}"
+uv run kosha doctor providers
+```
+
+OpenRouter's API is OpenAI-compatible for chat completions. `google/gemini-2.5-flash-lite` is a low-cost catalog model; swap `KOSHA_GEN_MODEL` for another OpenRouter model slug when cost or quality requirements change. This config keeps embeddings local unless `KOSHA_EMBED_*` is also configured.
+
+
 
 ## Fail-loud, never silent
 
