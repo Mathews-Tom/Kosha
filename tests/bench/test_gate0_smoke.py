@@ -18,25 +18,39 @@ from kosha.cli import main
 
 ROOT = Path(__file__).resolve().parents[2]
 CORPUS = ROOT / "bundles" / "pydoc-stdlib"
+S2V3_CORPUS = ROOT / "bundles" / "paper-s2v3-corpus"
+S2V3_QUERIES = ROOT / "evals" / "paper_s2v3" / "queries.jsonl"
+S2V3_MAINTENANCE = ROOT / "evals" / "paper_s2v3" / "maintenance.jsonl"
 
 
-def _run_cli(report_path: Path, *, ingests: int, max_queries: int) -> int:
-    return main(
-        [
-            "bench",
-            "realworld",
-            "--corpus",
-            str(CORPUS),
-            "--ingests",
-            str(ingests),
-            "--max-queries",
-            str(max_queries),
-            "--seed-concepts",
-            "12",
-            "--report",
-            str(report_path),
-        ]
-    )
+def _run_cli(
+    report_path: Path,
+    *,
+    ingests: int,
+    max_queries: int,
+    corpus: Path = CORPUS,
+    queries: Path | None = None,
+    maintenance: Path | None = None,
+) -> int:
+    args = [
+        "bench",
+        "realworld",
+        "--corpus",
+        str(corpus),
+        "--ingests",
+        str(ingests),
+        "--max-queries",
+        str(max_queries),
+        "--seed-concepts",
+        "12",
+        "--report",
+        str(report_path),
+    ]
+    if queries:
+        args.extend(["--queries", str(queries)])
+    if maintenance:
+        args.extend(["--maintenance", str(maintenance)])
+    return main(args)
 
 
 def test_offline_smoke_exits_zero_and_records_a_verdict(tmp_path: Path) -> None:
@@ -76,3 +90,20 @@ def test_full_scale_run_without_real_providers_warns_instead_of_a_silent_verdict
     code = _run_cli(tmp_path / "report.md", ingests=50, max_queries=2)
     assert code == 0
     assert "NOT a valid Gate-0 verdict" in capsys.readouterr().err
+
+
+def test_s2v3_offline_smoke_exits_zero_and_records_a_verdict(tmp_path: Path) -> None:
+    if not S2V3_CORPUS.exists():
+        pytest.skip("s2v3 corpus not ready")
+    report_path = tmp_path / "S2V3_REPORT.md"
+    code = _run_cli(
+        report_path,
+        ingests=5,
+        max_queries=6,
+        corpus=S2V3_CORPUS,
+        queries=S2V3_QUERIES,
+        maintenance=S2V3_MAINTENANCE,
+    )
+    assert code == 0
+    text = report_path.read_text(encoding="utf-8")
+    assert "**Verdict: GO**" in text or "**Verdict: NO-GO**" in text
