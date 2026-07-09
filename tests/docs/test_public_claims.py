@@ -164,6 +164,8 @@ def test_check_public_claims_flags_a_missing_file_at_its_own_path(
         "Kosha now delivers decision-quality superiority in every benchmark.",
         "A host agent cannot grep the bundle to find what it needs.",
         "A host agent structurally cannot grep the corpus for answers.",
+        "Kosha beats RAG on both tokens and wall-clock latency.",
+        "The index-traversal approach is superior to RAG.",
     ],
     ids=[
         "beats-a-good-prompt",
@@ -172,6 +174,8 @@ def test_check_public_claims_flags_a_missing_file_at_its_own_path(
         "decision-quality-superiority",
         "host-agent-cannot-grep",
         "host-agent-structurally-cannot-grep",
+        "beats-rag",
+        "superior-to-rag",
     ],
 )
 def test_scanner_flags_reintroduced_banned_claims(banned_sentence: str) -> None:
@@ -192,6 +196,9 @@ def test_scanner_flags_reintroduced_banned_claims(banned_sentence: str) -> None:
         "The file-based fallback is instruction-only: "
         "a host agent cannot grep the bundle by contract alone.",
         "Define the must-beat-a-prompt bar before reopening the product-quality claim.",
+        "Kosha does not currently claim retrieval superiority over real-world RAG systems.",
+        "These figures verify deterministic mechanics, not a win over real RAG.",
+        "At what corpus size and price does index-traversal actually beat RAG?",
     ],
     ids=[
         "does-not-currently-beat",
@@ -202,6 +209,9 @@ def test_scanner_flags_reintroduced_banned_claims(banned_sentence: str) -> None:
         "cannot-grep-future-sandboxed",
         "cannot-grep-instruction-only",
         "must-beat-a-prompt-bar-is-not-a-claim",
+        "does-not-claim-rag-superiority",
+        "deterministic-rag-caveat",
+        "question-about-beating-rag",
     ],
 )
 def test_scanner_allows_negated_or_qualified_claims(allowed_sentence: str) -> None:

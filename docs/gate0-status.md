@@ -24,4 +24,6 @@ Kosha's verified differentiator is the governance guarantee: zero silent overwri
 
 Kosha does **not** currently claim decision-quality superiority over a good prompt. The real-model Gate-0 runs found the opposite for the measured decision-quality axes. Future work can attempt to reopen Gate 0, but production-loop expansion stays halted until the pre-registered criterion records a GO.
 
+Kosha does **not** currently claim retrieval superiority over real-world RAG systems. The deterministic hybrid-vs-RAG numbers are internal self-consistency checks on toy providers, not a real-model superiority claim.
+
 Kosha also does **not** claim that a host agent with generic filesystem tools is unable to search files. The shipped MCP server exposes traversal tools and no raw-text search endpoint. The file-based fallback gives traversal instructions. Only a future sandboxed serving boundary can enforce that the agent's filesystem access terminates at Kosha.
