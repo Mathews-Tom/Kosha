@@ -33,6 +33,7 @@ from kosha.bench.realworld.runner import (
     run_realworld,
 )
 from kosha.bench.realworld.status import (
+    InvalidGate0VerdictError,
     local_provider_gate_warning,
     render_gate_status_row,
     render_gate_status_summary,
@@ -43,6 +44,7 @@ __all__ = [
     "MAINTENANCE_ACTIONS",
     "MAINTENANCE_KINDS",
     "DriftResult",
+    "InvalidGate0VerdictError",
     "MaintenanceCase",
     "MaintenanceResult",
     "PromptDecision",
