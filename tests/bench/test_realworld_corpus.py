@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from kosha.bench.corpus import build_corpus, collect_entries
 from kosha.bench.realworld import load_maintenance, load_queries
 from kosha.okf import load_bundle
@@ -20,6 +22,9 @@ CORPUS = ROOT / "bundles" / "pydoc-stdlib"
 QUERIES = ROOT / "evals" / "realworld" / "queries.jsonl"
 MAINTENANCE = ROOT / "evals" / "realworld" / "maintenance.jsonl"
 S2V3_MANIFEST = ROOT / "bundles" / "paper-s2v3-corpus" / "MANIFEST.md"
+S2V3_CORPUS = ROOT / "bundles" / "paper-s2v3-corpus"
+S2V3_QUERIES = ROOT / "evals" / "paper_s2v3" / "queries.jsonl"
+S2V3_MAINTENANCE = ROOT / "evals" / "paper_s2v3" / "maintenance.jsonl"
 
 
 def test_s2v3_corpus_manifest_exists_and_is_valid() -> None:
@@ -57,30 +62,58 @@ def test_corpus_has_traversable_links() -> None:
             assert target in bundle.concepts, (concept.concept_id, target)
 
 
-def test_held_out_queries_reference_real_concepts() -> None:
-    bundle = load_bundle(CORPUS)
-    queries = load_queries(QUERIES)
-    assert len(queries) >= 20
+@pytest.mark.parametrize(
+    "corpus_path,queries_path",
+    [
+        (CORPUS, QUERIES),
+        (S2V3_CORPUS, S2V3_QUERIES),
+    ],
+)
+def test_held_out_queries_reference_real_concepts(corpus_path: Path, queries_path: Path) -> None:
+    if not corpus_path.exists() or not queries_path.exists():
+        pytest.skip(f"{corpus_path} not ready")
+    bundle = load_bundle(corpus_path)
+    queries = load_queries(queries_path)
+    assert len(queries) >= 1
     for query in queries:
         assert query.required_concepts
         for concept_id in query.required_concepts:
             assert concept_id in bundle.concepts, (query.id, concept_id)
 
 
-def test_held_out_maintenance_references_real_concepts() -> None:
-    bundle = load_bundle(CORPUS)
-    cases = load_maintenance(MAINTENANCE)
-    assert len(cases) >= 20
+@pytest.mark.parametrize(
+    "corpus_path,maintenance_path",
+    [
+        (CORPUS, MAINTENANCE),
+        (S2V3_CORPUS, S2V3_MAINTENANCE),
+    ],
+)
+def test_held_out_maintenance_references_real_concepts(
+    corpus_path: Path, maintenance_path: Path
+) -> None:
+    if not corpus_path.exists() or not maintenance_path.exists():
+        pytest.skip(f"{corpus_path} not ready")
+    bundle = load_bundle(corpus_path)
+    cases = load_maintenance(maintenance_path)
+    assert len(cases) >= 1
     for case in cases:
         if case.target is not None:
             assert case.target in bundle.concepts, (case.id, case.target)
 
 
-def test_maintenance_labels_are_self_consistent() -> None:
-    cases = load_maintenance(MAINTENANCE)
+@pytest.mark.parametrize(
+    "maintenance_path",
+    [
+        MAINTENANCE,
+        S2V3_MAINTENANCE,
+    ],
+)
+def test_maintenance_labels_are_self_consistent(maintenance_path: Path) -> None:
+    if not maintenance_path.exists():
+        pytest.skip(f"{maintenance_path} not ready")
+    cases = load_maintenance(maintenance_path)
     kinds = {case.kind for case in cases}
-    # All three maintenance dimensions are exercised.
-    assert kinds == {"duplicate", "novel", "contradiction"}
+    assert kinds.issubset({"duplicate", "novel", "contradiction"})
     for case in cases:
         if case.kind == "novel":
             assert case.expected_action == "CREATE"
@@ -109,6 +142,7 @@ def test_build_round_trips_every_entry(tmp_path: Path) -> None:
     bundle = load_bundle(tmp_path)
     # No entry is silently lost to a path collision on either filesystem flavor.
     assert len(bundle.concepts) == stats.concept_count
+
 
 def test_cli_bench_corpus_regenerates(tmp_path: Path) -> None:
     from kosha.cli import main

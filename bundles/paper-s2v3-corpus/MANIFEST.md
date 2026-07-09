@@ -1,4 +1,7 @@
-# Second Corpus Manifest: NASA Apollo Flight Journal Transcripts
+---
+title: Second Corpus Manifest
+type: concept
+---
 
 **Domain:** Historical spaceflight operations and procedures (non-Python, non-API documentation).
 **Source:** NASA Apollo Flight Journal (AFJ) mission transcripts and commentary.
