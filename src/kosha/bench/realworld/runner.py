@@ -62,13 +62,13 @@ from kosha.model import Bundle
 from kosha.okf import load_bundle
 from kosha.pipeline import ingest
 from kosha.providers.base import EmbeddingProvider, Generation, GenerationProvider
-from kosha.providers.tokens import count_tokens
-from kosha.telemetry import TelemetrySink, TokenCost, emit_provider_call
 from kosha.providers.diagnostics import (
     ProviderDiagnostic,
     diagnose_embedding_provider,
     diagnose_generation_provider,
 )
+from kosha.providers.tokens import count_tokens
+from kosha.telemetry import TelemetrySink, TokenCost, emit_provider_call
 
 # A function mapping a maintenance case to a (action, concept_id) routing decision.
 _RouteFn = Callable[["MaintenanceCase"], tuple[str, str | None]]
@@ -755,8 +755,14 @@ def render_realworld_report(report: RealworldReport) -> str:
         "## Setup",
         "",
         f"- Corpus: `{report.corpus_path}` ({report.concept_count} concepts, external)",
-        f"- Embedding provider: `{report.embedding_provider}` {_format_diagnostic(report.embedding_diagnostic)}",
-        f"- Generation provider: `{report.generation_provider}` {_format_diagnostic(report.generation_diagnostic)}",
+        (
+            f"- Embedding provider: `{report.embedding_provider}` "
+            f"{_format_diagnostic(report.embedding_diagnostic)}"
+        ),
+        (
+            f"- Generation provider: `{report.generation_provider}` "
+            f"{_format_diagnostic(report.generation_diagnostic)}"
+        ),
         f"- Held-out queries: {report.query_count}",
         "",
         "## Kill criterion (fixed before the run)",

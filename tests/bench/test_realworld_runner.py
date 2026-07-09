@@ -111,6 +111,19 @@ def test_render_report_has_table_kill_criterion_and_verdict(tmp_path: Path) -> N
     assert report.verdict in {"GO", "NO-GO"}
     assert f"Verdict: {report.verdict}" in document
 
+def test_render_report_includes_provider_diagnostics(tmp_path: Path) -> None:
+    report = _run(tmp_path, ingests=2)
+    document = render_realworld_report(report)
+    assert "(default offline)" in document
+    assert "lexical-hash" in document
+    assert "extractive" in document
+
+
+def test_verdict_rejects_local_providers_on_full_scale_run(tmp_path: Path) -> None:
+    report = _run(tmp_path, ingests=50) # MIN_INGESTS
+    assert report.verdict == "INVALID (local providers)"
+
+
 
 def test_verdict_requires_min_ingests(tmp_path: Path) -> None:
     # With only 2 ingests the >=50-ingest gate cannot pass, so a GO is impossible.
