@@ -19,6 +19,18 @@ ROOT = Path(__file__).resolve().parents[2]
 CORPUS = ROOT / "bundles" / "pydoc-stdlib"
 QUERIES = ROOT / "evals" / "realworld" / "queries.jsonl"
 MAINTENANCE = ROOT / "evals" / "realworld" / "maintenance.jsonl"
+S2V3_MANIFEST = ROOT / "bundles" / "paper-s2v3-corpus" / "MANIFEST.md"
+
+
+def test_s2v3_corpus_manifest_exists_and_is_valid() -> None:
+    assert S2V3_MANIFEST.exists()
+    text = S2V3_MANIFEST.read_text("utf-8")
+    assert "**Domain:**" in text
+    assert "**Source:**" in text
+    assert "**License:**" in text
+    assert "**Privacy:**" in text
+    assert "Exclusion Criteria" in text
+    assert "non-Python" in text
 
 
 def test_corpus_is_external_scale() -> None:
