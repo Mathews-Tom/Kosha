@@ -39,7 +39,7 @@ Version `0.1.0`.
 
 These figures verify deterministic mechanics, not real-model decision quality; reproduce with `uv run kosha bench acceptance`.
 
-**Real-model Gate-0 verdict** — four real-model runs returned **NO-GO** against the project's pre-registered criteria, including a second-corpus, cross-vendor S2-v3 replication. The most statistically powered run (S2 Gate-0 v2) measured 2 embeddings × 2 generation models × 3 runs over 108 held-out contradictions and found the loop trailing prompt-only detection and safety by 0.28–0.33 on every provider cell; S2-v3 replicated the protocol on a second corpus with a real cross-vendor model but a thin held-out sample (1 query, 0 contradiction cases) and also recorded NO-GO. M14+ product expansion remains halted. See [Gate-0 status](docs/gate0-status.md).
+**Real-model Gate-0 verdict** — four real-model runs returned **NO-GO** against the project's pre-registered criteria. The most statistically powered run (S2 Gate-0 v2) measured 2 embeddings × 2 generation models × 3 runs over 108 held-out contradictions and found the loop trailing prompt-only detection and safety by 0.28–0.33 on every provider cell; S2-v3 exercised a second corpus with a real OpenRouter generation model, but it did not satisfy the pre-registered two-generation-vendor shape and its held-out sample was thin (1 query, 0 contradiction cases), so it is recorded as a NO-GO evidence artifact rather than a successful cross-vendor replication. M14+ product expansion remains halted. See [Gate-0 status](docs/gate0-status.md).
 
 ---
 
