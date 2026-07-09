@@ -12,18 +12,20 @@ from kosha.bench.realworld import (
     local_provider_gate_warning,
     render_gate_status_row,
     render_gate_status_summary,
+    render_realworld_report,
     run_realworld,
 )
 from kosha.bench.realworld.runner import (
     DriftResult,
     MaintenanceResult,
+    QueryStrategyResult,
     RealworldReport,
     SafetyResult,
 )
 from kosha.contradiction import LexicalContradictionJudge
 from kosha.dedup import LexicalAdjudicator
 from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
-from kosha.providers.diagnostics import ProviderDiagnostic
+from kosha.providers.diagnostics import EnvVarDiagnostic, ProviderDiagnostic
 
 ROOT = Path(__file__).resolve().parents[2]
 CORPUS = ROOT / "bundles" / "pydoc-stdlib"
@@ -31,6 +33,7 @@ QUERIES = ROOT / "evals" / "realworld" / "queries.jsonl"
 MAINTENANCE = ROOT / "evals" / "realworld" / "maintenance.jsonl"
 GUIDANCE = ROOT / "consumer" / "AGENTS.fragment.md"
 DOCS_GATE0_STATUS = ROOT / "docs" / "gate0-status.md"
+S2V3_REPORT_PATH = ROOT / ".docs" / "s2-v3-report.md"
 
 
 def _report(work_dir: Path):  # type: ignore[no-untyped-def]
@@ -74,6 +77,98 @@ def test_gate0_status_doc_matches_the_current_recorded_verdict(tmp_path: Path) -
     summary = render_gate_status_summary(report)
     doc = DOCS_GATE0_STATUS.read_text(encoding="utf-8")
     assert summary in doc
+
+
+def _s2v3_report() -> RealworldReport:
+    """The `RealworldReport` behind `.docs/s2-v3-report.md` (PR-4, commit `034408d`,
+    2026-07-09) -- every field below is pinned to that checked-in powered result and
+    must only change alongside a new S2-v3 report commit, never by hand-editing docs.
+    """
+    diag = ProviderDiagnostic(
+        "embedding",
+        True,
+        "env",
+        "openai:bge-m3",
+        [
+            EnvVarDiagnostic("KOSHA_EMBED_BASE_URL", True, "http://localhost:11434/v1", []),
+            EnvVarDiagnostic("KOSHA_EMBED_MODEL", True, "bge-m3", []),
+            EnvVarDiagnostic("KOSHA_EMBED_API_KEY", True, "unus...", []),
+            EnvVarDiagnostic("KOSHA_EMBED_DIM", True, "1024", []),
+        ],
+        [],
+    )
+    gen_diag = ProviderDiagnostic(
+        "generation",
+        True,
+        "env",
+        "openai:google/gemini-2.5-flash-lite",
+        [
+            EnvVarDiagnostic("KOSHA_GEN_BASE_URL", True, "https://openrouter.ai/api/v1", []),
+            EnvVarDiagnostic("KOSHA_GEN_MODEL", True, "google/gemini-2.5-flash-lite", []),
+            EnvVarDiagnostic("KOSHA_GEN_API_KEY", True, "sk-or-v...4817", []),
+        ],
+        [],
+    )
+    return RealworldReport(
+        embedding_provider="openai:bge-m3",
+        generation_provider="openai:google/gemini-2.5-flash-lite",
+        embedding_diagnostic=diag,
+        generation_diagnostic=gen_diag,
+        corpus_path="bundles/paper-s2v3-corpus",
+        concept_count=2,
+        query_count=1,
+        queries=(
+            QueryStrategyResult("kosha_hybrid", 1.00, 1.00, 235, 270),
+            QueryStrategyResult("tuned_rag", 1.00, 0.00, 235, 244),
+            QueryStrategyResult("prompt_only", 1.00, 1.00, 247, 689),
+        ),
+        maintenance=(
+            MaintenanceResult(
+                "kosha_loop", 1, 1, {"duplicate": 0.0, "novel": 1.0, "contradiction": 0.0}
+            ),
+            MaintenanceResult(
+                "prompt_only", 1, 1, {"duplicate": 0.0, "novel": 1.0, "contradiction": 0.0}
+            ),
+        ),
+        drift=DriftResult(50, 0.0, 0.0, True, 2, 52, "lexical-jaccard-0.30"),
+        safety=(
+            SafetyResult("kosha_loop", 0, 0, 0),
+            SafetyResult("prompt_only", 0, 0, 0),
+        ),
+    )
+
+
+def test_s2v3_report_renders_byte_identical_to_the_checked_in_powered_result() -> None:
+    # Guards `.docs/s2-v3-report.md` from silent hand-edits after PR-4: the pinned
+    # RealworldReport above must still render to exactly the committed report text.
+    report = _s2v3_report()
+    committed = S2V3_REPORT_PATH.read_text(encoding="utf-8")
+    assert render_realworld_report(report).strip() == committed.strip()
+    assert report.verdict == "NO-GO", (
+        "S2-v3 verdict changed; sync the public claims before editing this test"
+    )
+
+
+def test_gate0_status_doc_carries_the_s2v3_evidence_row() -> None:
+    # The Evidence-summary row for S2-v3 must be the renderer's own output for
+    # the pinned report, not hand-authored prose that can drift from the
+    # checked-in `.docs/s2-v3-report.md` result.
+    row = render_gate_status_row(
+        _s2v3_report(), run_label="S2-v3 Gate-0", commit="034408d", date="2026-07-09"
+    )
+    doc = DOCS_GATE0_STATUS.read_text(encoding="utf-8")
+    assert row in doc
+
+
+def test_gate0_status_doc_discloses_the_s2v3_thin_sample_caveat() -> None:
+    # The S2-v3 powered run sampled zero contradiction cases and one held-out
+    # query -- far thinner than the 108-case S2 Gate-0 v2 run. A bare 0.00
+    # safety-rate row would misread as a strong loss; the doc must disclose
+    # the empty sample instead of letting that number stand unqualified.
+    doc = DOCS_GATE0_STATUS.read_text(encoding="utf-8")
+    assert "0 contradiction cases" in doc
+    assert "1 held-out query" in doc
+    assert "thin" in doc.lower()
 
 
 def _stub_report(*, verdict_no_go: bool, local_providers: bool = False) -> RealworldReport:
