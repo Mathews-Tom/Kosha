@@ -64,6 +64,11 @@ from kosha.pipeline import ingest
 from kosha.providers.base import EmbeddingProvider, Generation, GenerationProvider
 from kosha.providers.tokens import count_tokens
 from kosha.telemetry import TelemetrySink, TokenCost, emit_provider_call
+from kosha.providers.diagnostics import (
+    ProviderDiagnostic,
+    diagnose_embedding_provider,
+    diagnose_generation_provider,
+)
 
 # A function mapping a maintenance case to a (action, concept_id) routing decision.
 _RouteFn = Callable[["MaintenanceCase"], tuple[str, str | None]]
@@ -191,6 +196,8 @@ class RealworldReport:
 
     embedding_provider: str
     generation_provider: str
+    embedding_diagnostic: ProviderDiagnostic
+    generation_diagnostic: ProviderDiagnostic
     corpus_path: str
     concept_count: int
     query_count: int
@@ -251,6 +258,12 @@ class RealworldReport:
     @property
     def verdict(self) -> str:
         # Gate 0 reframed to the moat: knowledge-integrity safety, not routing.
+        # DEVELOPMENT_PLAN M3 gap: reject local providers for a full-scale Gate-0 verdict.
+        if self.drift.ingests >= MIN_INGESTS and (
+            self.embedding_provider.startswith("lexical")
+            or self.generation_provider.startswith("extractive")
+        ):
+            return "INVALID (local providers)"
         return "GO" if self.beats_on_safety and self.no_degradation else "NO-GO"
 
 
@@ -311,6 +324,8 @@ def run_realworld(
     return RealworldReport(
         embedding_provider=embedding_provider.name,
         generation_provider=generation_provider.name,
+        embedding_diagnostic=diagnose_embedding_provider(),
+        generation_diagnostic=diagnose_generation_provider(),
         corpus_path=str(config.corpus),
         concept_count=len(bundle.concepts),
         query_count=len(queries),
@@ -715,6 +730,14 @@ def _growth_doc(i: int) -> str:
     return f"# {topic} {i}\n\n{topic} {terms}\n"
 
 
+def _format_diagnostic(diag: ProviderDiagnostic) -> str:
+    if not diag.is_configured:
+        return "(default offline)"
+    details = ", ".join(f"{v.key}={v.preview}" for v in diag.vars if v.is_set)
+    errs = f" [ERRORS: {' | '.join(diag.errors)}]" if diag.errors else ""
+    return f"({diag.source}: {details}){errs}"
+
+
 def render_realworld_report(report: RealworldReport) -> str:
     """Render ACCEPTANCE_REPORT.md: the three-way table, drift, and the verdict."""
     lines = [
@@ -732,8 +755,8 @@ def render_realworld_report(report: RealworldReport) -> str:
         "## Setup",
         "",
         f"- Corpus: `{report.corpus_path}` ({report.concept_count} concepts, external)",
-        f"- Embedding provider: `{report.embedding_provider}`",
-        f"- Generation provider: `{report.generation_provider}`",
+        f"- Embedding provider: `{report.embedding_provider}` {_format_diagnostic(report.embedding_diagnostic)}",
+        f"- Generation provider: `{report.generation_provider}` {_format_diagnostic(report.generation_diagnostic)}",
         f"- Held-out queries: {report.query_count}",
         "",
         "## Kill criterion (fixed before the run)",
