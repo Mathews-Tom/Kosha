@@ -163,7 +163,7 @@ Gate the five MVP success criteria on the golden corpus. **Exit code `0` iff eve
 | C2 deep-latency | KS2 traversal latency still holds on a deterministic depth 4-5 bundle |
 | C3 duplicate-rate | re-ingesting the corpus yields ≈0 duplicates |
 | C4 fidelity | no edit-drift across ≥20 sequential ingests |
-| C5 contradiction-safety | 100% of injected contradictions resolved-or-escalated; 0 silent overwrites |
+| C5 contradiction-safety | 100% of injected contradictions resolved-or-escalated |
 
 ```bash
 uv run kosha bench acceptance --report ACCEPTANCE_REPORT.md

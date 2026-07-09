@@ -127,6 +127,10 @@ REQUIRED_DISCLOSURES: dict[str, Pattern[str]] = {
         r"not sandboxed[^\n]{0,60}(?:today|currently)",
         re.IGNORECASE,
     ),
+    "zero_silent_overwrite_invariant": re.compile(
+        r"zero silent overwrite[^\n]{0,80}design invariant",
+        re.IGNORECASE,
+    ),
 }
 
 def public_doc_paths(repo_root: Path) -> tuple[Path, ...]:

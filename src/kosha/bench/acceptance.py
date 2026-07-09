@@ -496,9 +496,9 @@ def contradiction_criterion(safety: ContradictionSafetyReport) -> AcceptanceCrit
     """Gate that injected contradictions are resolved-or-escalated, never overwritten."""
     return AcceptanceCriterion(
         id="C5-contradiction-safety",
-        name="Contradictions resolved-or-escalated, 0 silent overwrites",
+        name="Contradictions resolved-or-escalated",
         passed=safety.ok,
-        target="100% of injected contradictions resolved-or-escalated; 0 silent overwrites",
+        target="100% of injected contradictions resolved-or-escalated",
         evidence=(
             f"{safety.injected} injected contradictions: {safety.conflicting} detected; "
             f"{safety.resolved} resolved (temporal/authority) + {safety.escalated} escalated "

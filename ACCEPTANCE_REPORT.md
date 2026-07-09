@@ -17,7 +17,7 @@ Token figures are deterministic (fixed corpus, fixed queries, deterministic loca
 | C1-token-latency Hybrid token cost < RAG (at matched quality) and latency within RAG margin | PASS | hybrid total tokens < raw-docs baseline AND hybrid tokens-per-recall < RAG; hybrid latency within 2x RAG (round-trip comparison below 5ms wall-clock) |
 | C2-duplicate-rate Duplicate-rate ~= 0 after repeated ingests | PASS | duplicate-rate <= 0.00 on a re-ingest of the corpus |
 | C3-fidelity Fidelity preserved across >=20 sequential ingests | PASS | no edit-drift across >=20 ingests |
-| C4-contradiction-safety Contradictions resolved-or-escalated, 0 silent overwrites | PASS | 100% of injected contradictions resolved-or-escalated; 0 silent overwrites |
+| C4-contradiction-safety Contradictions resolved-or-escalated | PASS | 100% of injected contradictions resolved-or-escalated |
 
 ### C1-token-latency — PASS
 
@@ -39,7 +39,7 @@ _Fidelity preserved across >=20 sequential ingests_
 
 ### C4-contradiction-safety — PASS
 
-_Contradictions resolved-or-escalated, 0 silent overwrites_
+_Contradictions resolved-or-escalated_
 
 12 injected contradictions: 12 detected; 11 resolved (temporal/authority) + 1 escalated = 12 handled; 0 silent overwrites.
 

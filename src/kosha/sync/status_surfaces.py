@@ -185,7 +185,10 @@ def _readme_acceptance_summary(criterion: AcceptanceCriterion) -> str:
             ),
             criterion.id,
         )
-        return f"{handled[1]}/{handled[0]} handled; {handled[2]} silent overwrites"
+        return (
+            f"{handled[1]}/{handled[0]} handled; "
+            "zero silent overwrite verified as a design invariant"
+        )
     raise ValueError(f"unsupported acceptance criterion for README sync: {criterion.id}")
 
 

@@ -78,7 +78,8 @@ def test_sync_public_claim_checker_is_clean_for_current_repo() -> None:
 _CANONICAL_DISCLOSURES = (
     "**Real-model Gate-0 verdict** — three real-model runs returned **NO-GO**. "
     "M14+ product expansion remains halted.\n\n"
-    "A host agent with generic filesystem tools is not sandboxed by Kosha today.\n"
+    "A host agent with generic filesystem tools is not sandboxed by Kosha today.\n\n"
+    "zero silent overwrite verified as a design invariant.\n"
 )
 
 
@@ -233,6 +234,12 @@ def test_filesystem_boundary_disclosure_pattern_matches_canonical_phrasing() -> 
     )
     assert REQUIRED_DISCLOSURES["filesystem_not_sandboxed_today"].search(sample)
 
+
+def test_zero_silent_overwrite_invariant_disclosure_pattern_matches_canonical_phrasing() -> None:
+    sample = normalize_claim_line(
+        "zero silent overwrite verified as a design invariant"
+    )
+    assert REQUIRED_DISCLOSURES["zero_silent_overwrite_invariant"].search(sample)
 
 def test_required_disclosure_patterns_do_not_match_when_silently_dropped() -> None:
     sample = normalize_claim_line("Kosha ships a governance skill with a replayable audit trail.")
