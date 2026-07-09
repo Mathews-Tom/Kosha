@@ -75,6 +75,24 @@ BANNED_RULES: dict[str, tuple[Pattern[str], tuple[str, ...]]] = {
             "found the opposite",
         ),
     ),
+    # "Kosha beats RAG" — an unqualified real-world RAG superiority claim.
+    "real_rag_superiority": (
+        re.compile(
+            rf"{_BEAT}[^.\n?!]{{0,120}}\brag\b|\brag\b[^.\n?!]{{0,120}}{_BEAT}",
+            re.IGNORECASE,
+        ),
+        (
+            "does not currently claim",
+            "does not claim",
+            "toy providers",
+            "toy provider",
+            "deterministic",
+            "benchmark-only",
+            "test whether",
+            "tests whether",
+            "at what",
+        ),
+    ),
     # "a host agent cannot grep the bundle" — a structural capability claim
     # about the shipped surface, banned unless it names the sandboxed/
     # future/instruction-only boundary that would actually make it true.
