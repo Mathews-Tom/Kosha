@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from kosha.bench.realworld import (
+    InvalidGate0VerdictError,
     RealworldConfig,
     local_provider_gate_warning,
     render_gate_status_row,
@@ -73,16 +76,18 @@ def test_gate0_status_doc_matches_the_current_recorded_verdict(tmp_path: Path) -
     assert summary in doc
 
 
-def _stub_report(*, verdict_no_go: bool) -> RealworldReport:
+def _stub_report(*, verdict_no_go: bool, local_providers: bool = False) -> RealworldReport:
     loop_safe, prompt_safe = (3, 8) if verdict_no_go else (9, 3)
+    embedding_provider = "lexical-hash-256" if local_providers else "stub-embed"
+    generation_provider = "extractive-3" if local_providers else "stub-gen"
     return RealworldReport(
-        embedding_provider="stub-embed",
-        generation_provider="stub-gen",
+        embedding_provider=embedding_provider,
+        generation_provider=generation_provider,
         embedding_diagnostic=ProviderDiagnostic(
-            "embedding", False, "default", "stub-embed", [], []
+            "embedding", False, "default", embedding_provider, [], []
         ),
         generation_diagnostic=ProviderDiagnostic(
-            "generation", False, "default", "stub-gen", [], []
+            "generation", False, "default", generation_provider, [], []
         ),
         corpus_path="stub-corpus",
         concept_count=500,
@@ -138,3 +143,26 @@ def test_local_provider_gate_warning_fires_if_only_one_side_is_real() -> None:
     # embedding paired with the local extractive generator is still not a
     # valid Gate-0 run.
     assert local_provider_gate_warning("openai:bge-m3", "extractive-3", 50) is not None
+
+
+def test_render_gate_status_summary_rejects_an_invalid_local_provider_verdict() -> None:
+    # A full-scale run measured with local providers is not a valid Gate-0
+    # result (PR-1: reject local-provider verdicts); the status renderer must
+    # refuse to turn it into public GO/NO-GO text rather than silently
+    # publishing a misleading verdict.
+    report = _stub_report(verdict_no_go=True, local_providers=True)
+    assert report.verdict == "INVALID (local providers)"
+    with pytest.raises(InvalidGate0VerdictError, match="NOT a valid Gate-0 verdict"):
+        render_gate_status_summary(report)
+
+
+def test_render_gate_status_row_rejects_an_invalid_local_provider_verdict() -> None:
+    report = _stub_report(verdict_no_go=False, local_providers=True)
+    assert report.verdict == "INVALID (local providers)"
+    with pytest.raises(InvalidGate0VerdictError, match="NOT a valid Gate-0 verdict"):
+        render_gate_status_row(
+            report,
+            run_label="S2-v3 smoke",
+            commit="abc1234",
+            date="2026-07-09",
+        )
