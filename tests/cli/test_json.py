@@ -85,12 +85,12 @@ def test_bench_json_with_report_path_stays_pure_json(
 
 
 def test_bench_acceptance_json_matches_exit_code(capsys: pytest.CaptureFixture[str]) -> None:
-    code, payload = _run_json(
-        ["bench", "acceptance", "--bundle", str(NORTHWIND), "--json"], capsys
-    )
+    code, payload = _run_json(["bench", "acceptance", "--bundle", str(NORTHWIND), "--json"], capsys)
     assert (code == 0) is payload["passed"]
     assert len(payload["criteria"]) >= 1
     assert all("id" in c and "passed" in c for c in payload["criteria"])
+
+
 def test_bench_acceptance_json_with_report_path_stays_pure_json(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -169,6 +169,7 @@ def test_bench_realworld_json_shape() -> None:
     assert payload["maintenance_delta"] == pytest.approx(report.maintenance_delta)
     assert payload["safety_delta"] == pytest.approx(report.safety_delta)
     assert payload["drift"]["grew"] is True
+    assert payload["drift"]["fidelity_targeter"] == "lexical"
 
 
 def test_bench_realworld_cli_json_end_to_end(capsys: pytest.CaptureFixture[str]) -> None:

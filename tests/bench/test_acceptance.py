@@ -33,6 +33,7 @@ from kosha.bench.runner import BenchReport, StrategyResult
 from kosha.cli import main
 from kosha.dedup import LexicalAdjudicator
 from kosha.eval.dedup import DuplicateRateReport, evaluate_duplicate_rate
+from kosha.merge import LexicalClaimTargeter
 from kosha.okf import load_bundle
 from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
 from kosha.providers.base import Generation, Usage
@@ -184,9 +185,7 @@ def test_run_acceptance_verdicts_are_deterministic() -> None:
     second = run_acceptance(
         bundle, LexicalEmbeddingProvider(), ExtractiveGenerationProvider(), bundle_path="b"
     )
-    assert [(c.id, c.passed) for c in first.criteria] == [
-        (c.id, c.passed) for c in second.criteria
-    ]
+    assert [(c.id, c.passed) for c in first.criteria] == [(c.id, c.passed) for c in second.criteria]
     assert first.passed == second.passed
 
 
@@ -256,6 +255,19 @@ def test_measure_fidelity_runs_with_generation_targeter(tmp_path: Path) -> None:
     assert report.ok
     assert report.targeter_name == "generation:first-claim"
     assert "generation:first-claim" in fidelity_criterion(report).evidence
+
+
+def test_measure_fidelity_rejects_both_targeter_and_generation_provider(
+    tmp_path: Path,
+) -> None:
+    # M4: the two ways to pick a non-default targeter are mutually exclusive;
+    # silently preferring one would hide which targeter a report actually used.
+    with pytest.raises(ValueError, match="pass targeter or generation_provider, not both"):
+        measure_fidelity(
+            tmp_path,
+            targeter=LexicalClaimTargeter(),
+            generation_provider=_FirstClaimProvider(),
+        )
 
 
 def test_measure_fidelity_manages_its_own_scratch_dir() -> None:
