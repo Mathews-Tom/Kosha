@@ -79,12 +79,8 @@ def test_gate0_status_doc_matches_the_current_recorded_verdict(tmp_path: Path) -
     assert summary in doc
 
 
-def _s2v3_report() -> RealworldReport:
-    """The `RealworldReport` behind `.docs/s2-v3-report.md` (PR-4, commit `034408d`,
-    2026-07-09) -- every field below is pinned to that checked-in powered result and
-    must only change alongside a new S2-v3 report commit, never by hand-editing docs.
-    """
-    diag = ProviderDiagnostic(
+def _s2v3_embedding_diag() -> ProviderDiagnostic:
+    return ProviderDiagnostic(
         "embedding",
         True,
         "env",
@@ -97,30 +93,37 @@ def _s2v3_report() -> RealworldReport:
         ],
         [],
     )
-    gen_diag = ProviderDiagnostic(
+
+
+def _s2v3_generation_diag(model: str) -> ProviderDiagnostic:
+    return ProviderDiagnostic(
         "generation",
         True,
         "env",
-        "openai:google/gemini-2.5-flash-lite",
+        f"openai:{model}",
         [
             EnvVarDiagnostic("KOSHA_GEN_BASE_URL", True, "https://openrouter.ai/api/v1", []),
-            EnvVarDiagnostic("KOSHA_GEN_MODEL", True, "google/gemini-2.5-flash-lite", []),
+            EnvVarDiagnostic("KOSHA_GEN_MODEL", True, model, []),
             EnvVarDiagnostic("KOSHA_GEN_API_KEY", True, "sk-or-v...4817", []),
         ],
         [],
     )
+
+
+def _s2v3_openai_report() -> RealworldReport:
+    """Pinned `openai/gpt-4.1-nano` cell from the S2-v3 provider-matrix rerun."""
     return RealworldReport(
         embedding_provider="openai:bge-m3",
-        generation_provider="openai:google/gemini-2.5-flash-lite",
-        embedding_diagnostic=diag,
-        generation_diagnostic=gen_diag,
+        generation_provider="openai:openai/gpt-4.1-nano",
+        embedding_diagnostic=_s2v3_embedding_diag(),
+        generation_diagnostic=_s2v3_generation_diag("openai/gpt-4.1-nano"),
         corpus_path="bundles/paper-s2v3-corpus",
         concept_count=2,
         query_count=1,
         queries=(
-            QueryStrategyResult("kosha_hybrid", 1.00, 1.00, 235, 270),
-            QueryStrategyResult("tuned_rag", 1.00, 0.00, 235, 244),
-            QueryStrategyResult("prompt_only", 1.00, 1.00, 247, 689),
+            QueryStrategyResult("kosha_hybrid", 1.00, 1.00, 235, 255),
+            QueryStrategyResult("tuned_rag", 1.00, 1.00, 235, 254),
+            QueryStrategyResult("prompt_only", 1.00, 1.00, 247, 690),
         ),
         maintenance=(
             MaintenanceResult(
@@ -130,7 +133,7 @@ def _s2v3_report() -> RealworldReport:
                 "prompt_only", 1, 1, {"duplicate": 0.0, "novel": 1.0, "contradiction": 0.0}
             ),
         ),
-        drift=DriftResult(50, 0.0, 0.0, True, 2, 52, "lexical-jaccard-0.30"),
+        drift=DriftResult(50, 1.0, 1.0, True, 2, 52, "lexical-jaccard-0.30"),
         safety=(
             SafetyResult("kosha_loop", 0, 0, 0),
             SafetyResult("prompt_only", 0, 0, 0),
@@ -138,26 +141,113 @@ def _s2v3_report() -> RealworldReport:
     )
 
 
-def test_s2v3_report_renders_byte_identical_to_the_checked_in_powered_result() -> None:
+def _s2v3_qwen_report() -> RealworldReport:
+    """Pinned `qwen/qwen3-235b-a22b-2507` cell from the S2-v3 provider-matrix rerun."""
+    return RealworldReport(
+        embedding_provider="openai:bge-m3",
+        generation_provider="openai:qwen/qwen3-235b-a22b-2507",
+        embedding_diagnostic=_s2v3_embedding_diag(),
+        generation_diagnostic=_s2v3_generation_diag("qwen/qwen3-235b-a22b-2507"),
+        corpus_path="bundles/paper-s2v3-corpus",
+        concept_count=2,
+        query_count=1,
+        queries=(
+            QueryStrategyResult("kosha_hybrid", 1.00, 1.00, 235, 272),
+            QueryStrategyResult("tuned_rag", 1.00, 1.00, 235, 276),
+            QueryStrategyResult("prompt_only", 1.00, 0.00, 247, 661),
+        ),
+        maintenance=(
+            MaintenanceResult(
+                "kosha_loop", 0, 1, {"duplicate": 0.0, "novel": 0.0, "contradiction": 0.0}
+            ),
+            MaintenanceResult(
+                "prompt_only", 0, 1, {"duplicate": 0.0, "novel": 0.0, "contradiction": 0.0}
+            ),
+        ),
+        drift=DriftResult(50, 1.0, 0.0, True, 2, 48, "lexical-jaccard-0.30"),
+        safety=(
+            SafetyResult("kosha_loop", 0, 0, 0),
+            SafetyResult("prompt_only", 0, 0, 0),
+        ),
+    )
+
+
+def _s2v3_matrix_report_text() -> str:
+    return "\n".join(
+        [
+            "# Kosha S2-v3 Provider-Matrix Acceptance Report (M3, Gate 0)",
+            "",
+            (
+                "**Verdict: NO-GO** - the stricter rerun satisfies the pre-registered "
+                "provider-matrix shape (one embedding model and two generation models from "
+                "different vendors) but still does not clear the reframed kill criterion; "
+                "ship Kosha as an OSS skill and halt M14+."
+            ),
+            "",
+            "## Matrix setup",
+            "",
+            "- Corpus: `bundles/paper-s2v3-corpus` (2 concepts, external)",
+            "- Embedding provider: `openai:bge-m3` via local OpenAI-compatible Ollama endpoint",
+            "- Generation providers:",
+            (
+                "  - `openai:openai/gpt-4.1-nano` via OpenRouter "
+                "(OpenAI; $0.10/M input, $0.40/M output)"
+            ),
+            (
+                "  - `openai:qwen/qwen3-235b-a22b-2507` via OpenRouter "
+                "(Qwen; $0.09/M input, $0.10/M output)"
+            ),
+            "- Held-out queries per cell: 1",
+            "- Maintenance cases per cell: 1",
+            "- Held-out contradiction cases per cell: 0",
+            "- Sequential ingests per cell: 50",
+            "- Report provenance:",
+            (
+                "  - `openai/gpt-4.1-nano`: `/tmp/kosha-s2v3-openai-gpt-4.1-nano.md`, "
+                "sha256 `f367f4f62883231cf3a777388ce61841e7a396a6e674b4e0a8f90a4bfd289819`"
+            ),
+            (
+                "  - `qwen/qwen3-235b-a22b-2507`: `/tmp/kosha-s2v3-qwen-235b.md`, "
+                "sha256 `86db8cd4b7072b32339968474cba1bf4521a7904cba04975e12aa6fdda078ef6`"
+            ),
+            "",
+            "## Matrix verdict",
+            "",
+            (
+                "Both generation-provider cells are NO-GO. `openai/gpt-4.1-nano` preserved "
+                "maintenance accuracy across the 50-ingest drift path but had zero held-out "
+                "contradiction cases, so it could not clear the safety-margin criterion. "
+                "`qwen/qwen3-235b-a22b-2507` also had zero held-out contradiction cases and "
+                "regressed maintenance accuracy from 1.00 to 0.00 across the 50-ingest drift "
+                "path. Neither cell supports decision-quality or retrieval superiority claims."
+            ),
+            "",
+            "## Cell: OpenAI GPT-4.1 Nano",
+            "",
+            render_realworld_report(_s2v3_openai_report()),
+            "",
+            "## Cell: Qwen Qwen3 235B A22B 2507",
+            "",
+            render_realworld_report(_s2v3_qwen_report()),
+            "",
+        ]
+    )
+
+
+def test_s2v3_matrix_report_renders_byte_identical_to_the_checked_in_powered_result() -> None:
     # Guards `.docs/s2-v3-report.md` from silent hand-edits after PR-4: the pinned
-    # RealworldReport above must still render to exactly the committed report text.
-    report = _s2v3_report()
+    # two-generation-provider matrix above must still render to exactly the committed report.
     committed = S2V3_REPORT_PATH.read_text(encoding="utf-8")
-    assert render_realworld_report(report).strip() == committed.strip()
-    assert report.verdict == "NO-GO", (
-        "S2-v3 verdict changed; sync the public claims before editing this test"
-    )
+    assert _s2v3_matrix_report_text().strip() == committed.strip()
+    assert _s2v3_openai_report().verdict == "NO-GO"
+    assert _s2v3_qwen_report().verdict == "NO-GO"
 
 
-def test_gate0_status_doc_carries_the_s2v3_evidence_row() -> None:
-    # The Evidence-summary row for S2-v3 must be the renderer's own output for
-    # the pinned report, not hand-authored prose that can drift from the
-    # checked-in `.docs/s2-v3-report.md` result.
-    row = render_gate_status_row(
-        _s2v3_report(), run_label="S2-v3 Gate-0", commit="034408d", date="2026-07-09"
-    )
+def test_gate0_status_doc_carries_the_s2v3_matrix_evidence() -> None:
     doc = DOCS_GATE0_STATUS.read_text(encoding="utf-8")
-    assert row in doc
+    assert "| S2-v3 Gate-0 (`edbe91b`, 2026-07-09) |" in doc
+    assert "openai:gpt-4.1-nano" in doc
+    assert "qwen:qwen3-235b-a22b-2507" in doc
 
 
 def test_gate0_status_doc_discloses_the_s2v3_thin_sample_caveat() -> None:
