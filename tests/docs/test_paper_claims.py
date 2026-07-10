@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PREREG = ROOT / ".docs" / "s2-v3-preregistration.md"
 EVIDENCE_LEDGER = ROOT / ".docs" / "paper" / "evidence-ledger.md"
 CITATIONS = ROOT / ".docs" / "paper" / "citations.md"
+RELATED_WORK = ROOT / ".docs" / "paper" / "related-work.md"
 
 _TABLE_ROW = re.compile(r"^\|(?P<cells>.+)\|$")
 
@@ -89,3 +90,22 @@ def test_citation_inventory_covers_required_closest_priors() -> None:
         "Retrieval-Augmented Generation",
     ):
         assert required in text, f"citation inventory missing required prior work: {required}"
+
+
+_ARXIV_ID = re.compile(r"arXiv:(\d{4}\.\d{4,5})")
+
+
+def test_related_work_document_exists() -> None:
+    assert RELATED_WORK.exists()
+
+
+def test_every_related_work_citation_is_in_the_inventory() -> None:
+    # A citation used in prose but absent from the inventory is exactly the
+    # "unchecked citation" the milestone acceptance row forbids.
+    citations_text = CITATIONS.read_text("utf-8")
+    inventory_ids = set(_ARXIV_ID.findall(citations_text))
+    related_work_text = RELATED_WORK.read_text("utf-8")
+    used_ids = set(_ARXIV_ID.findall(related_work_text))
+    assert used_ids, "related work cites no arXiv identifiers"
+    missing = used_ids - inventory_ids
+    assert not missing, f"related work cites arXiv ids missing from citations.md: {sorted(missing)}"
