@@ -210,7 +210,24 @@ Full reference: [`docs/cli-reference.md`](docs/cli-reference.md).
 
 ## Configuration
 
-Kosha defaults to deterministic, offline **local providers** (`lexical-hash-256` embeddings, `extractive-3` generation) so the benchmark and tests run reproducibly with no network. Set environment variables to opt into any OpenAI-compatible HTTP endpoint (OpenAI, Ollama, llama.cpp, …):
+Kosha defaults to deterministic, offline **local providers** (`lexical-hash-256` embeddings, `extractive-3` generation) so the benchmark and tests run reproducibly with no network. Copy `.env.example` to `.env`, uncomment the variables you need, fill in local provider values, and source it before provider-sensitive commands:
+
+```bash
+cp .env.example .env
+source .env
+uv run kosha doctor providers
+```
+
+Set environment variables to opt into any OpenAI-compatible HTTP endpoint. For cheap OpenRouter generation with local embeddings:
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+export KOSHA_GEN_BASE_URL=https://openrouter.ai/api/v1
+export KOSHA_GEN_MODEL=google/gemini-2.5-flash-lite
+export KOSHA_GEN_API_KEY="${OPENROUTER_API_KEY}"
+```
+
+OpenAI-compatible cloud and local endpoints use the same shape:
 
 ```bash
 export KOSHA_GEN_BASE_URL=https://api.openai.com/v1
@@ -218,7 +235,7 @@ export KOSHA_GEN_MODEL=gpt-4o-mini
 export KOSHA_GEN_API_KEY=sk-...
 ```
 
-A base URL without its companion model is an error, never a silent fallback. Full matrix: [`docs/configuration.md`](docs/configuration.md).
+A base URL without its companion model is an error, never a silent fallback. `.env` is ignored by git; do not commit real API keys. Full matrix: [`docs/configuration.md`](docs/configuration.md).
 
 ---
 
