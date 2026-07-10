@@ -31,6 +31,7 @@ def _run_cli(
     corpus: Path = CORPUS,
     queries: Path | None = None,
     maintenance: Path | None = None,
+    fidelity_targeter: str | None = None,
 ) -> int:
     args = [
         "bench",
@@ -50,6 +51,8 @@ def _run_cli(
         args.extend(["--queries", str(queries)])
     if maintenance:
         args.extend(["--maintenance", str(maintenance)])
+    if fidelity_targeter:
+        args.extend(["--fidelity-targeter", fidelity_targeter])
     return main(args)
 
 
@@ -148,6 +151,32 @@ def test_s2v3_offline_smoke_records_the_provider_matrix(tmp_path: Path) -> None:
     text = report_path.read_text(encoding="utf-8")
     assert "Embedding provider: `lexical-hash-256` (default offline)" in text
     assert "Generation provider: `extractive-3` (default offline)" in text
+
+
+def test_s2v3_offline_smoke_generation_fidelity_targeter_exits_zero_and_is_deterministic(
+    tmp_path: Path,
+) -> None:
+    # M4: the pre-registered smoke command adds --fidelity-targeter generation
+    # on the second corpus. Local providers keep it offline and deterministic,
+    # but the drift probe must route through GenerationClaimTargeter and record
+    # that identity, not silently fall back to the lexical default.
+    if not S2V3_CORPUS.exists():
+        pytest.skip("s2v3 corpus not ready")
+    common = {
+        "ingests": 5,
+        "max_queries": 6,
+        "corpus": S2V3_CORPUS,
+        "queries": S2V3_QUERIES,
+        "maintenance": S2V3_MAINTENANCE,
+        "fidelity_targeter": "generation",
+    }
+    first = tmp_path / "first.md"
+    second = tmp_path / "second.md"
+    assert _run_cli(first, **common) == 0
+    assert _run_cli(second, **common) == 0
+    text = first.read_text(encoding="utf-8")
+    assert first.read_text(encoding="utf-8") == second.read_text(encoding="utf-8")
+    assert "Fidelity targeter: `generation:extractive-3`" in text
 
 
 def test_s2v3_full_scale_run_without_real_providers_warns_instead_of_a_silent_verdict(
