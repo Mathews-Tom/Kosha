@@ -20,3 +20,26 @@ Kosha extends the mature pre-LLM human-gated curation lineage (e.g., Wikidata bo
 | **Non-Claim** | Decision-Quality Superiority | Kosha does **not** claim to beat a strong prompt-only baseline on maintenance decision quality. |
 | **Non-Claim** | Retrieval Superiority | Kosha does **not** claim retrieval superiority over real-world RAG systems (deterministic numbers are self-consistency checks). |
 | **Non-Claim** | Filesystem Sandboxing | Kosha exposes traversal tools, but does **not** currently sandbox a host agent with generic filesystem access. |
+
+## 4. Fidelity Targeter Evidence (M4)
+
+The §7.1 edit-drift fidelity probe (repeatedly superseding one claim and checking
+that the body stays a byte-identical projection of the in-force claims) has two
+targeters: the deterministic `LexicalClaimTargeter` (highest-Jaccard-overlap
+match) and the real-model `GenerationClaimTargeter` (an LLM picks the claim a
+new statement revises). Earlier acceptance and Gate-0 evidence — including the
+M3 S2-v3 report (`.docs/s2-v3-report.md`) — recorded fidelity only under the
+lexical targeter, which is exact by construction on its own synthetic loop and
+cannot by itself demonstrate that a real model preserves the same guarantee.
+
+A reviewed real-provider run (`.docs/real-model-fidelity-report.md`,
+`openai:bge-m3` embeddings + `openai:openai/gpt-4.1-nano` generation via
+OpenRouter, `bundles/paper-s2v3-corpus`, 50 sequential ingests,
+`--fidelity-targeter generation`) closes that caveat: **edit-drift fidelity did
+not hold** (`fidelity_targeter: generation:openai:openai/gpt-4.1-nano`,
+`fidelity_ok: False`), unlike the lexical targeter's exact match on the same
+probe shape. The paper must report this as an additional negative finding —
+the governance mechanism's edit-drift guarantee, as currently implemented,
+depends on the deterministic targeter and is not yet demonstrated to hold when
+an LLM performs the claim-targeting judgment. Paper prose must not cite the
+lexical-only fidelity result as evidence that a real model preserves fidelity.
