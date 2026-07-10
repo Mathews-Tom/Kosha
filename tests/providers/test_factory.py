@@ -12,6 +12,7 @@ from kosha.providers import (
     resolve_embedding_provider,
     resolve_generation_provider,
 )
+from kosha.providers.diagnostics import diagnose_embedding_provider
 
 
 def test_empty_env_defaults_to_local_providers() -> None:
@@ -59,3 +60,24 @@ def test_non_integer_dimension_is_rejected() -> None:
                 "KOSHA_EMBED_DIM": "not-a-number",
             }
         )
+
+
+
+def test_diagnose_embedding_provider_redacts_api_key() -> None:
+    diag = diagnose_embedding_provider({
+        "KOSHA_EMBED_BASE_URL": "http://localhost:8000",
+        "KOSHA_EMBED_MODEL": "test-model",
+        "KOSHA_EMBED_API_KEY": "sk-1234567890abcdef",
+    })
+    assert diag.is_configured
+    key_var = next(v for v in diag.vars if v.key == "KOSHA_EMBED_API_KEY")
+    assert "sk-" in key_var.preview
+    assert "1234567890abcdef" not in key_var.preview
+
+
+def test_diagnose_embedding_provider_reports_missing_model() -> None:
+    diag = diagnose_embedding_provider({
+        "KOSHA_EMBED_BASE_URL": "http://localhost:8000",
+    })
+    assert diag.is_configured
+    assert any("KOSHA_EMBED_MODEL is missing" in err for err in diag.errors)

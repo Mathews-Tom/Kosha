@@ -23,6 +23,7 @@ from kosha.bench.realworld import (
 )
 from kosha.cli import main
 from kosha.cli_json import bench_realworld_json
+from kosha.providers.diagnostics import ProviderDiagnostic
 
 ROOT = Path(__file__).resolve().parents[2]
 NORTHWIND = ROOT / "bundles" / "northwind"
@@ -117,6 +118,22 @@ def test_bench_realworld_json_shape() -> None:
     report = RealworldReport(
         embedding_provider="lexical-hash-256",
         generation_provider="extractive-3",
+        embedding_diagnostic=ProviderDiagnostic(
+            role="embedding",
+            is_configured=False,
+            source="default",
+            provider_name="lexical-hash-256",
+            vars=[],
+            errors=[],
+        ),
+        generation_diagnostic=ProviderDiagnostic(
+            role="generation",
+            is_configured=False,
+            source="default",
+            provider_name="extractive-3",
+            vars=[],
+            errors=[],
+        ),
         corpus_path="bundles/pydoc-stdlib",
         concept_count=42,
         query_count=6,

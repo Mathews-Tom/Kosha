@@ -16,6 +16,7 @@ from kosha.bench.realworld.runner import (
 from kosha.bench.realworld.status import render_gate_status_summary
 from kosha.okf import load_bundle
 from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
+from kosha.providers.diagnostics import ProviderDiagnostic
 from kosha.sync.check import SyncMismatch
 from kosha.sync.writer import GeneratedSectionWriter
 
@@ -99,6 +100,22 @@ def recorded_gate0_report() -> RealworldReport:
     return RealworldReport(
         embedding_provider="bge-m3",
         generation_provider="gpt-4o-mini",
+        embedding_diagnostic=ProviderDiagnostic(
+            role="embedding",
+            is_configured=True,
+            source="recorded",
+            provider_name="bge-m3",
+            vars=[],
+            errors=[],
+        ),
+        generation_diagnostic=ProviderDiagnostic(
+            role="generation",
+            is_configured=True,
+            source="recorded",
+            provider_name="gpt-4o-mini",
+            vars=[],
+            errors=[],
+        ),
         corpus_path="bundles/pydoc-stdlib",
         concept_count=680,
         query_count=0,

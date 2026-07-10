@@ -20,6 +20,7 @@ from kosha.bench.realworld.runner import (
 from kosha.contradiction import LexicalContradictionJudge
 from kosha.dedup import LexicalAdjudicator
 from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
+from kosha.providers.diagnostics import ProviderDiagnostic
 
 ROOT = Path(__file__).resolve().parents[2]
 CORPUS = ROOT / "bundles" / "pydoc-stdlib"
@@ -77,6 +78,12 @@ def _stub_report(*, verdict_no_go: bool) -> RealworldReport:
     return RealworldReport(
         embedding_provider="stub-embed",
         generation_provider="stub-gen",
+        embedding_diagnostic=ProviderDiagnostic(
+            "embedding", False, "default", "stub-embed", [], []
+        ),
+        generation_diagnostic=ProviderDiagnostic(
+            "generation", False, "default", "stub-gen", [], []
+        ),
         corpus_path="stub-corpus",
         concept_count=500,
         query_count=0,
