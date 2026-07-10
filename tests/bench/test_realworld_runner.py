@@ -10,7 +10,10 @@ and the verdict plumbing are asserted here.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+
+import pytest
 
 from kosha.bench.realworld import (
     RealworldConfig,
@@ -96,6 +99,35 @@ def test_runner_drift_grows_the_corpus(tmp_path: Path) -> None:
     assert report.drift.grew
     # The edit-drift fidelity probe always runs the full >=50-ingest check.
     assert report.drift.fidelity_ok
+    # Default config keeps the deterministic lexical-Jaccard targeter.
+    assert report.drift.fidelity_targeter.startswith("lexical-jaccard-")
+
+
+def test_runner_records_generation_fidelity_targeter_identity(tmp_path: Path) -> None:
+    # M4: the drift probe's fidelity_targeter must reflect the configured
+    # generation targeter and the provider identity it used, not just "lexical",
+    # so a real-model run cannot be mistaken for the deterministic default.
+    config = RealworldConfig(
+        corpus=CORPUS,
+        queries=QUERIES,
+        maintenance=MAINTENANCE,
+        guidance=GUIDANCE,
+        ingests=1,
+        candidate_k=4,
+        drift_seed_concepts=12,
+        max_queries=1,
+        fidelity_targeter="generation",
+    )
+    report = run_realworld(
+        config,
+        LexicalEmbeddingProvider(),
+        ExtractiveGenerationProvider(),
+        adjudicator=LexicalAdjudicator(),
+        judge=LexicalContradictionJudge(),
+        work_dir=tmp_path,
+    )
+    assert report.drift.fidelity_targeter.startswith("generation:")
+    assert "extractive-3" in report.drift.fidelity_targeter
 
 
 def test_render_report_has_table_kill_criterion_and_verdict(tmp_path: Path) -> None:
@@ -111,6 +143,7 @@ def test_render_report_has_table_kill_criterion_and_verdict(tmp_path: Path) -> N
     assert report.verdict in {"GO", "NO-GO"}
     assert f"Verdict: {report.verdict}" in document
 
+
 def test_render_report_includes_provider_diagnostics(tmp_path: Path) -> None:
     report = _run(tmp_path, ingests=2)
     document = render_realworld_report(report)
@@ -120,9 +153,8 @@ def test_render_report_includes_provider_diagnostics(tmp_path: Path) -> None:
 
 
 def test_verdict_rejects_local_providers_on_full_scale_run(tmp_path: Path) -> None:
-    report = _run(tmp_path, ingests=50) # MIN_INGESTS
+    report = _run(tmp_path, ingests=50)  # MIN_INGESTS
     assert report.verdict == "INVALID (local providers)"
-
 
 
 def test_verdict_requires_min_ingests(tmp_path: Path) -> None:
@@ -154,3 +186,29 @@ def test_cli_realworld_writes_report(tmp_path: Path) -> None:
     text = report_path.read_text(encoding="utf-8")
     assert "Real-Model Acceptance Report" in text
     assert "| Strategy |" in text
+
+
+def test_cli_realworld_json_reports_generation_fidelity_targeter(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = main(
+        [
+            "bench",
+            "realworld",
+            "--corpus",
+            str(CORPUS),
+            "--ingests",
+            "1",
+            "--max-queries",
+            "2",
+            "--seed-concepts",
+            "12",
+            "--fidelity-targeter",
+            "generation",
+            "--json",
+        ]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["drift"]["fidelity_targeter"].startswith("generation:")
+    assert "extractive-3" in payload["drift"]["fidelity_targeter"]

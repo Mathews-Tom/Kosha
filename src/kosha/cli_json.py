@@ -163,6 +163,7 @@ def bench_realworld_json(corpus_path: Path, report: RealworldReport) -> dict[str
             "accuracy_start": report.drift.accuracy_start,
             "accuracy_end": report.drift.accuracy_end,
             "fidelity_ok": report.drift.fidelity_ok,
+            "fidelity_targeter": report.drift.fidelity_targeter,
             "seed_concepts": report.drift.seed_concepts,
             "final_concepts": report.drift.final_concepts,
             "grew": report.drift.grew,
