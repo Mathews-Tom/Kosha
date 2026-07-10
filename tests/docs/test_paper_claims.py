@@ -8,6 +8,8 @@ PREREG = ROOT / ".docs" / "s2-v3-preregistration.md"
 EVIDENCE_LEDGER = ROOT / ".docs" / "paper" / "evidence-ledger.md"
 CITATIONS = ROOT / ".docs" / "paper" / "citations.md"
 RELATED_WORK = ROOT / ".docs" / "paper" / "related-work.md"
+EXPERIMENTS = ROOT / ".docs" / "paper" / "experiments-and-reproducibility.md"
+DRAFT = ROOT / ".docs" / "paper" / "draft.md"
 
 _TABLE_ROW = re.compile(r"^\|(?P<cells>.+)\|$")
 
@@ -109,3 +111,50 @@ def test_every_related_work_citation_is_in_the_inventory() -> None:
     assert used_ids, "related work cites no arXiv identifiers"
     missing = used_ids - inventory_ids
     assert not missing, f"related work cites arXiv ids missing from citations.md: {sorted(missing)}"
+
+
+def test_experiments_and_reproducibility_document_exists() -> None:
+    assert EXPERIMENTS.exists()
+
+
+def test_draft_document_exists() -> None:
+    assert DRAFT.exists()
+
+
+def test_draft_has_no_banned_claims() -> None:
+    # The paper draft lives under .docs/paper/ and is not on the M1 scanner's
+    # public-surface list, but it must hold to the same claim-boundary
+    # discipline as every scanned doc — the whole point of the milestone.
+    from kosha.sync.public_claims import find_banned_claims
+
+    violations = find_banned_claims(DRAFT.read_text("utf-8"))
+    assert not violations, f"draft.md has banned claim-boundary violations: {violations}"
+
+
+def test_draft_carries_required_disclosures() -> None:
+    from kosha.sync.public_claims import REQUIRED_DISCLOSURES, normalize_claim_line
+
+    text = "\n".join(normalize_claim_line(line) for line in DRAFT.read_text("utf-8").splitlines())
+    for name, pattern in REQUIRED_DISCLOSURES.items():
+        if name == "filesystem_not_sandboxed_today":
+            continue
+        assert pattern.search(text), f"draft.md missing required disclosure: {name}"
+
+
+def test_draft_links_every_component_document() -> None:
+    text = DRAFT.read_text("utf-8")
+    for component in (
+        ".docs/paper/related-work.md",
+        ".docs/paper/experiments-and-reproducibility.md",
+        ".docs/paper/evidence-ledger.md",
+        ".docs/paper-positioning.md",
+    ):
+        assert component in text, f"draft.md does not reference component document: {component}"
+
+
+def test_draft_states_the_s2v3_decision_rule() -> None:
+    # The pre-registered decision rule (NO-GO generalizes vs GO pivots to
+    # conditional-autonomy framing) must be stated, not silently applied.
+    text = DRAFT.read_text("utf-8").lower()
+    assert "decision rule" in text
+    assert "conditional-autonomy" in text
