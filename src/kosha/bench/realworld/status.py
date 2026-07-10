@@ -9,11 +9,29 @@ text, so recording a new run's verdict is generating and pasting this output,
 not freehand prose, and `test_gate0_status_matches_current_verdict` in
 `tests/docs/test_public_claims.py` keeps the checked-in doc from drifting away
 from it.
+
+M3 adds a third verdict a real-world run can carry: ``INVALID (local
+providers)``, recorded when a full-scale run used the local lexical/extractive
+providers instead of real ones. That run measured nothing about Gate 0, so
+both renderers below refuse to turn it into status text — see
+:class:`InvalidGate0VerdictError` — instead of letting an invalid smoke run
+silently drift into the public GO/NO-GO record.
 """
 
 from __future__ import annotations
 
 from kosha.bench.realworld.runner import MIN_INGESTS, SAFETY_MARGIN, RealworldReport
+
+
+class InvalidGate0VerdictError(ValueError):
+    """A report's verdict cannot be published as Gate-0 status (M3).
+
+    Raised by :func:`render_gate_status_summary` and
+    :func:`render_gate_status_row` for a report whose verdict is
+    ``INVALID (local providers)`` — a full-scale run measured with local,
+    non-real providers is not a valid recorded Gate-0 result and must not be
+    pasted into `docs/gate0-status.md` as if it were a real GO/NO-GO.
+    """
 
 
 def local_provider_gate_warning(
@@ -45,7 +63,18 @@ def local_provider_gate_warning(
 
 
 def render_gate_status_summary(report: RealworldReport) -> str:
-    """Render the `docs/gate0-status.md` "Current public verdict" sentence."""
+    """Render the `docs/gate0-status.md` "Current public verdict" sentence.
+
+    Raises :class:`InvalidGate0VerdictError` for an ``INVALID (local
+    providers)`` verdict; that run is not a valid recorded result.
+    """
+    if report.verdict.startswith("INVALID"):
+        raise InvalidGate0VerdictError(
+            local_provider_gate_warning(
+                report.embedding_provider, report.generation_provider, report.drift.ingests
+            )
+            or f"report verdict {report.verdict!r} is not a valid Gate-0 result"
+        )
     if report.verdict == "GO":
         return (
             "**Real-model Gate-0 verdict: GO.** The maintenance loop preserves "
@@ -63,7 +92,18 @@ def render_gate_status_summary(report: RealworldReport) -> str:
 def render_gate_status_row(
     report: RealworldReport, *, run_label: str, commit: str, date: str
 ) -> str:
-    """Render one `docs/gate0-status.md` evidence-table row for this run."""
+    """Render one `docs/gate0-status.md` evidence-table row for this run.
+
+    Raises :class:`InvalidGate0VerdictError` for an ``INVALID (local
+    providers)`` verdict; that run is not a valid recorded result.
+    """
+    if report.verdict.startswith("INVALID"):
+        raise InvalidGate0VerdictError(
+            local_provider_gate_warning(
+                report.embedding_provider, report.generation_provider, report.drift.ingests
+            )
+            or f"report verdict {report.verdict!r} is not a valid Gate-0 result"
+        )
     loop_safety = report.safety_by_name("kosha_loop")
     prompt_safety = report.safety_by_name("prompt_only")
     setup = (

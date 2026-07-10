@@ -738,19 +738,31 @@ def _format_diagnostic(diag: ProviderDiagnostic) -> str:
     return f"({diag.source}: {details}){errs}"
 
 
+def _verdict_interpretation(report: RealworldReport) -> str:
+    """One-line interpretation of `report.verdict` for the acceptance report (M3)."""
+    if report.verdict == "GO":
+        return (
+            "the loop preserves knowledge integrity under contradiction better than a "
+            "safety-instructed prompt; the moat holds. Proceed past Gate 0."
+        )
+    if report.verdict.startswith("INVALID"):
+        return (
+            "local, non-real providers were used at full scale; this run measured "
+            "nothing about Gate 0 and must not be recorded as a GO or NO-GO verdict "
+            "-- configure real providers and rerun."
+        )
+    return (
+        "the loop does not clear the reframed kill criterion; ship Kosha as an "
+        "OSS skill and halt M14+."
+    )
+
+
 def render_realworld_report(report: RealworldReport) -> str:
     """Render ACCEPTANCE_REPORT.md: the three-way table, drift, and the verdict."""
     lines = [
         "# Kosha Real-Model Acceptance Report (M13, Gate 0)",
         "",
-        f"**Verdict: {report.verdict}** "
-        + (
-            "- the loop preserves knowledge integrity under contradiction better than a "
-            "safety-instructed prompt; the moat holds. Proceed past Gate 0."
-            if report.verdict == "GO"
-            else "- the loop does not clear the reframed kill criterion; ship Kosha as an "
-            "OSS skill and halt M14+."
-        ),
+        f"**Verdict: {report.verdict}** - {_verdict_interpretation(report)}",
         "",
         "## Setup",
         "",
