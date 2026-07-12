@@ -1,4 +1,4 @@
-"""Explicit connector registry and source-instance config loading (M6)."""
+"""Explicit connector registry and source-instance config loading (M6/M7)."""
 
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ def _write(path: Path, entries: list[dict[str, object]]) -> Path:
 # --- explicit registry --------------------------------------------------
 
 
-def test_the_registry_ships_exactly_folder_and_url() -> None:
-    assert set(CONNECTOR_REGISTRY) == {"folder", "url"}
+def test_the_registry_ships_exactly_folder_url_and_git() -> None:
+    assert set(CONNECTOR_REGISTRY) == {"folder", "url", "git"}
 
 
 def test_resolve_connector_returns_the_matching_definition() -> None:
@@ -36,8 +36,8 @@ def test_resolve_connector_returns_the_matching_definition() -> None:
 
 
 def test_resolve_connector_fails_loud_on_an_unknown_id() -> None:
-    with pytest.raises(UnknownConnectorError, match="unknown connector_id 'git'"):
-        resolve_connector("git")
+    with pytest.raises(UnknownConnectorError, match="unknown connector_id 'sharepoint'"):
+        resolve_connector("sharepoint")
 
 
 # --- load_source_instances: fail loud, never fall back -------------------
@@ -65,9 +65,9 @@ def test_a_non_array_payload_fails_loud(tmp_path: Path) -> None:
 def test_an_unknown_connector_id_fails_loud(tmp_path: Path) -> None:
     path = _write(
         tmp_path / "sources.json",
-        [{"instance_id": "x", "connector_id": "git", "config": {}}],
+        [{"instance_id": "x", "connector_id": "sharepoint", "config": {}}],
     )
-    with pytest.raises(UnknownConnectorError, match="unknown connector_id 'git'"):
+    with pytest.raises(UnknownConnectorError, match="unknown connector_id 'sharepoint'"):
         load_source_instances(path)
 
 

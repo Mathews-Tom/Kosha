@@ -74,11 +74,11 @@ def test_source_list_rejects_an_unknown_connector_id(
 ) -> None:
     config = _write_config(
         tmp_path / "sources.json",
-        [{"instance_id": "x", "connector_id": "git", "config": {}}],
+        [{"instance_id": "x", "connector_id": "sharepoint", "config": {}}],
     )
     code = main(["source", "list", "--config", str(config)])
     assert code == 2
-    assert "unknown connector_id 'git'" in capsys.readouterr().err
+    assert "unknown connector_id 'sharepoint'" in capsys.readouterr().err
 
 
 def test_source_list_prints_every_configured_instance(
