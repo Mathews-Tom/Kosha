@@ -23,6 +23,7 @@ def test_source_kind_exhausts_known_values() -> None:
         "markdown",
         "workspace_export",
         "document",
+        "git",
     }
 
 
