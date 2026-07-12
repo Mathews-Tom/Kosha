@@ -339,6 +339,56 @@ class GitStore:
         result = self._run("remote", "get-url", name, check=False)
         return result.stdout.strip() or None if result.returncode == 0 else None
 
+    def parent_ref(self, ref: str) -> str | None:
+        """Return ``ref``'s first-parent SHA, or ``None`` for a root commit."""
+        result = self._run("rev-parse", "--verify", "--quiet", f"{ref}^", check=False)
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    def is_ancestor(self, ancestor: str, ref: str = "HEAD") -> bool:
+        """True when ``ancestor`` is reachable from ``ref``.
+
+        False both when ``ancestor`` is a valid SHA no longer on ``ref``'s
+        history (a rewritten/force-pushed branch) and when it is not a valid
+        object at all -- callers needing a bounded Git cursor's "still
+        reachable" invariant (DEVELOPMENT_PLAN.md M7) only ever need to tell
+        "still an ancestor" apart from "not," not diagnose which case applies.
+        """
+        return self._run("merge-base", "--is-ancestor", ancestor, ref, check=False).returncode == 0
+
+    def commit_range(self, base: str | None, head: str = "HEAD", *, limit: int) -> list[str]:
+        """Return up to ``limit`` commit SHAs reachable from ``head``, oldest first.
+
+        ``base=None`` returns the ``limit`` most recent commits reachable
+        from ``head``; otherwise the (bounded) commits in ``base..head``.
+        Bounded and deterministic: never walks or returns more than
+        ``limit`` entries even when the true range is larger.
+        """
+        range_expr = f"{base}..{head}" if base else head
+        listing = self._git("log", f"--max-count={limit}", "--reverse", "--format=%H", range_expr)
+        return [line for line in listing.splitlines() if line]
+
+    def count_range(self, base: str | None, head: str = "HEAD") -> int:
+        """Return the total commit count of :meth:`commit_range`'s unbounded window."""
+        range_expr = f"{base}..{head}" if base else head
+        return int(self._git("rev-list", "--count", range_expr))
+
+    def commit_headline(self, ref: str) -> tuple[str, str, datetime, str]:
+        """Return ``(sha, "Name <email>", author date, subject)`` for ``ref``."""
+        output = self._git("log", "-1", "--format=%H%x1f%aN <%aE>%x1f%aI%x1f%s", ref)
+        sha, author, date_iso, subject = output.split("\x1f")
+        return sha, author, datetime.fromisoformat(date_iso), subject
+
+    def status_paths(self) -> list[tuple[str, str]]:
+        """Return sorted ``(status, path)`` pairs for the current working-tree status.
+
+        Porcelain v1's two-letter status code and path only -- names and
+        kinds of change, never content -- sorted for determinism regardless
+        of git's own listing order.
+        """
+        output = self._git("status", "--porcelain=v1", "--untracked-files=all")
+        pairs = [(line[:2], line[3:]) for line in output.splitlines() if line]
+        return sorted(pairs, key=lambda pair: pair[1])
+
     def show(self, ref: str, path: str) -> str:
         """Return ``path``'s content as committed at ``ref``."""
         return self._git("show", f"{ref}:{path}")

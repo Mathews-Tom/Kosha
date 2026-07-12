@@ -44,6 +44,7 @@ class SourceKind(StrEnum):
     MARKDOWN = "markdown"
     WORKSPACE_EXPORT = "workspace_export"
     DOCUMENT = "document"
+    GIT = "git"
 
 
 class Frontmatter(BaseModel):

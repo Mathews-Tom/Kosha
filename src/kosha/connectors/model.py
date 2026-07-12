@@ -33,10 +33,16 @@ _CURRENT_STATE_SCHEMA_VERSION = 1
 
 
 class ConnectorBackend(StrEnum):
-    """Which existing ingest adapter a shipped connector wires."""
+    """Which ingest surface a shipped connector wires.
+
+    ``FOLDER``/``URL`` wire an existing ``kosha.ingest`` adapter; ``GIT``
+    (DEVELOPMENT_PLAN.md M7) is a dedicated connector-owned surface with no
+    separate ``kosha.ingest`` adapter of its own.
+    """
 
     FOLDER = "folder"
     URL = "url"
+    GIT = "git"
 
 
 class SourceRunOutcome(StrEnum):
