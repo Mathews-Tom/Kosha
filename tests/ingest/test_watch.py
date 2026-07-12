@@ -18,6 +18,8 @@ from kosha.git_store import GitStore
 from kosha.ingest.url import UrlIngestError
 from kosha.ingest.watch import ScheduledIngest, SourcePolicy
 from kosha.model import RawDoc, Source, SourceKind
+from kosha.pipeline import ingest as pipeline_ingest
+from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
 
 _ASOF = datetime(2026, 6, 28, tzinfo=UTC)
 
@@ -240,5 +242,42 @@ def test_the_scheduled_url_path_never_writes_a_persistent_temp_file(
         now=lambda: _ASOF,
     )
     result = scheduled.run_once()
+
+    assert result.committed is True
+
+
+# --- ambient remote generation variables never reach an injected provider --
+
+
+def test_an_injected_generation_provider_ignores_poisoned_ambient_variables(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A workstation can permanently export invalid remote KOSHA_GEN_* variables.
+    # Production precedence is unchanged: ingest() still resolves them via
+    # resolve_generation_provider() when no provider is injected. A
+    # scheduled-ingest call site that explicitly injects a deterministic
+    # provider -- the pattern this milestone requires for tests exercising
+    # local/offline behavior -- must stay network-free regardless of what the
+    # ambient environment contains.
+    monkeypatch.setenv("KOSHA_GEN_BASE_URL", "https://invalid.example/v1")
+    monkeypatch.setenv("KOSHA_GEN_MODEL", "ambient-model")
+    monkeypatch.setenv("KOSHA_GEN_API_KEY", "ambient-secret-value")
+    monkeypatch.setattr("urllib.request.urlopen", _reject_if_called)
+
+    bundle = _seed_bundle(tmp_path)
+    fetched = _raw_doc(
+        "# Shipping\n\nExpedited orders ship within one business day of confirmation.\n"
+    )
+
+    result = pipeline_ingest(
+        Path("scheduled-source"),
+        bundle,
+        asof=_ASOF,
+        dry_run=False,
+        assume_yes=True,
+        raw_docs=[fetched],
+        embedding_provider=LexicalEmbeddingProvider(),
+        generation_provider=ExtractiveGenerationProvider(),
+    )
 
     assert result.committed is True
