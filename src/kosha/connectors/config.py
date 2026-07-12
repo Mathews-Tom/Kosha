@@ -1,13 +1,12 @@
-"""Explicit shipped-connector registry and source-instance config loading (M6).
+"""Explicit shipped-connector registry and source-instance config loading.
 
 No dynamic plugin loader: connectors are a fixed, hand-maintained mapping
-from ``connector_id`` to a :class:`~kosha.connectors.model.ConnectorDefinition`
-that wires one existing ingest adapter (``kosha.ingest.folder`` /
-``kosha.ingest.url``) through the ordinary plan -> approve -> commit gate
-(``kosha.pipeline.run.ingest``) -- the same two adapters
-``kosha.ingest.watch.ScheduledIngest`` already drives. Building a new
-connector implementation (Git, MCP, ...) is DEVELOPMENT_PLAN.md M7's
-concern, not this module's.
+from ``connector_id`` to a :class:`~kosha.connectors.model.ConnectorDefinition`.
+``folder``/``url`` wire an existing ``kosha.ingest`` adapter through the
+ordinary plan -> approve -> commit gate (``kosha.pipeline.run.ingest``) --
+the same two adapters ``kosha.ingest.watch.ScheduledIngest`` already drives
+(DEVELOPMENT_PLAN.md M6). ``git`` wires the bounded, read-only repository
+connector in :mod:`kosha.connectors.git` (DEVELOPMENT_PLAN.md M7).
 """
 
 from __future__ import annotations
@@ -18,6 +17,7 @@ from urllib.parse import urlsplit
 
 import pydantic
 
+from kosha.connectors.git import run_git_source
 from kosha.connectors.model import (
     ConnectorBackend,
     ConnectorDefinition,
@@ -99,8 +99,19 @@ URL_CONNECTOR = ConnectorDefinition(
     required_config_keys=("url",),
 )
 
+GIT_CONNECTOR = ConnectorDefinition(
+    connector_id="git",
+    display_name="Bounded Git repository history",
+    backend=ConnectorBackend.GIT,
+    ingest=run_git_source,
+    required_config_keys=("path",),
+    required_env_vars=("KOSHA_GIT_ALLOWED_ROOTS",),
+    supports_cursor=True,
+)
+
 CONNECTOR_REGISTRY: dict[str, ConnectorDefinition] = {
-    connector.connector_id: connector for connector in (FOLDER_CONNECTOR, URL_CONNECTOR)
+    connector.connector_id: connector
+    for connector in (FOLDER_CONNECTOR, URL_CONNECTOR, GIT_CONNECTOR)
 }
 
 
