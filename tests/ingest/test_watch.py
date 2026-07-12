@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from kosha.approve import Decision
+from kosha.evidence import CoverageKind
 from kosha.git_store import GitStore
 from kosha.ingest.url import UrlIngestError
 from kosha.ingest.watch import ScheduledIngest, SourcePolicy
@@ -281,3 +282,78 @@ def test_an_injected_generation_provider_ignores_poisoned_ambient_variables(
     )
 
     assert result.committed is True
+
+
+# --- URL fetch coverage: complete, scoped to the response body only ---------
+
+
+def test_a_scheduled_url_fetch_reports_complete_coverage_scoped_to_the_response_body(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = _seed_bundle(tmp_path)
+    policy = SourcePolicy(max_bytes=1_000_000, allowed_hosts=frozenset({"trusted.example"}))
+    fetched = _raw_doc(
+        "# Shipping\n\nExpedited orders ship within one business day of confirmation.\n"
+    )
+    monkeypatch.setattr("kosha.ingest.watch.fetch_url", lambda url, **kwargs: fetched)
+
+    scheduled = ScheduledIngest(
+        "https://trusted.example/page",
+        bundle,
+        policy,
+        dry_run=True,
+        now=lambda: _ASOF,
+    )
+    result = scheduled.run_once()
+
+    assert result.evidence_run is not None
+    coverage = result.evidence_run.run.coverage
+    assert coverage.kind is CoverageKind.COMPLETE
+    assert coverage.scope is not None
+    assert "https://trusted.example/page" in coverage.scope
+
+
+def test_a_scheduled_url_fetchs_coverage_lands_in_the_commit_change_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = _seed_bundle(tmp_path)
+    policy = SourcePolicy(max_bytes=1_000_000, allowed_hosts=frozenset({"trusted.example"}))
+    fetched = _raw_doc(
+        "# Shipping\n\nExpedited orders ship within one business day of confirmation.\n"
+    )
+    monkeypatch.setattr("kosha.ingest.watch.fetch_url", lambda url, **kwargs: fetched)
+    store = GitStore(bundle)
+
+    scheduled = ScheduledIngest(
+        "https://trusted.example/page",
+        bundle,
+        policy,
+        dry_run=False,
+        assume_yes=True,
+        now=lambda: _ASOF,
+    )
+    result = scheduled.run_once()
+
+    assert result.committed is True
+    assert "coverage=complete" in store.commit_message()
+
+
+def test_a_scheduled_local_path_run_still_derives_its_own_folder_scoped_coverage(
+    tmp_path: Path,
+) -> None:
+    # The local-path branch of run_once() drives ingest_folder() itself, same
+    # as a direct `kosha ingest` call -- it must not silently fall back to
+    # unknown just because it is reached through ScheduledIngest.
+    bundle = _seed_bundle(tmp_path)
+    source = tmp_path / "source"
+    (source / "policies").mkdir(parents=True)
+    (source / "policies" / "returns.md").write_text(
+        "# Returns\n\nStandard returns are accepted within 45 days of delivery.\n",
+        encoding="utf-8",
+    )
+    policy = SourcePolicy(max_bytes=1_000_000)
+    scheduled = ScheduledIngest(source, bundle, policy, dry_run=True, now=lambda: _ASOF)
+    result = scheduled.run_once()
+
+    assert result.evidence_run is not None
+    assert result.evidence_run.run.coverage.kind is CoverageKind.COMPLETE

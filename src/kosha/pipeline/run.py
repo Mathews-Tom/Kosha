@@ -43,7 +43,13 @@ from kosha.dedup import (
 )
 from kosha.dedup.resolver import Decision as DedupDecision
 from kosha.dedup.split import Splitter
-from kosha.evidence import EvidenceStore, bundle_identity, evidence_root
+from kosha.evidence import (
+    CoverageKind,
+    EvidenceStore,
+    SourceCoverage,
+    bundle_identity,
+    evidence_root,
+)
 from kosha.extract import ConceptDraft, extract_concepts
 from kosha.git_store import GitStore, IngestLock
 from kosha.index.embedding import EmbeddingIndex, index_text
@@ -95,6 +101,7 @@ class _ChangeMeta:
     impact: Impact
     contradiction: ContradictionState
     evidence: frozenset[str] = frozenset()
+    coverage: SourceCoverage | None = None
 
 
 @dataclass(frozen=True)
@@ -111,6 +118,7 @@ class _Tools:
     asof: datetime
     reviewer: str | None = None
     telemetry_sink: TelemetrySink | None = None
+    coverage: SourceCoverage | None = None
 
 
 @dataclass
@@ -175,6 +183,7 @@ def ingest(
     telemetry_sink: TelemetrySink | None = None,
     raw_docs: list[RawDoc] | None = None,
     evidence_store: EvidenceStore | None = None,
+    coverage: SourceCoverage | None = None,
 ) -> IngestResult:
     """Ingest ``source`` into the bundle at ``bundle_root`` behind the approve gate.
 
@@ -182,6 +191,13 @@ def ingest(
     <jane@example.com>"); when supplied it is recorded as a ``Reviewed-by``
     trailer on the commit. It is normalized (and validated) up front so a
     malformed value fails before any pipeline work runs, not after.
+
+    ``coverage`` states what portion of ``source`` this run observed
+    (DEVELOPMENT_PLAN.md M5). A caller passing ``raw_docs`` (a URL/workspace/
+    document adapter) is the only party that knows its own completeness, so
+    an omitted ``coverage`` there defaults honestly to unknown rather than
+    being guessed. When ``raw_docs`` is omitted, this function drives the
+    folder adapter itself and can state the traversal scope precisely.
     """
     reviewer = normalize_reviewer(reviewer)
     embedder = embedding_provider or resolve_embedding_provider()
@@ -192,6 +208,12 @@ def ingest(
         if raw_docs is not None
         else ingest_folder(source, authority_rank=source_authority)
     )
+    effective_coverage = coverage
+    if effective_coverage is None and raw_docs is None:
+        effective_coverage = SourceCoverage(
+            kind=CoverageKind.COMPLETE,
+            scope=f"directory traversal under {source}; suffix .md",
+        )
     docs, evidence_run = bind_evidence(
         docs,
         run_id=uuid4().hex,
@@ -199,6 +221,7 @@ def ingest(
         source_instance_id=str(source),
         started_at=asof,
         completed_at=asof,
+        coverage=effective_coverage,
     )
     bundle = (
         load_bundle(bundle_root) if bundle_root.is_dir() else Bundle(root_path=str(bundle_root))
@@ -215,6 +238,7 @@ def ingest(
         asof=asof,
         reviewer=reviewer,
         telemetry_sink=telemetry_sink,
+        coverage=evidence_run.run.coverage if evidence_run is not None else None,
     )
     accum = _Accumulator(concepts=dict(bundle.concepts))
 
@@ -330,6 +354,7 @@ def _apply(
             impact=Impact.MEDIUM if result.superseded else Impact.LOW,
             contradiction=result.contradiction,
             evidence=frozenset({draft.evidence_sha256}) if draft.evidence_sha256 else frozenset(),
+            coverage=tools.coverage if draft.evidence_sha256 else None,
         )
         accum.flags.extend(
             Flag(
@@ -350,6 +375,7 @@ def _apply(
             impact=Impact.LOW,
             contradiction=ContradictionState.NONE,
             evidence=frozenset({draft.evidence_sha256}) if draft.evidence_sha256 else frozenset(),
+            coverage=tools.coverage if draft.evidence_sha256 else None,
         )
 
 
@@ -384,6 +410,7 @@ def _concept_changes(
                 impact=info.impact if info else Impact.LOW,
                 contradiction=info.contradiction if info else ContradictionState.NONE,
                 evidence_sha256=info.evidence if info else frozenset(),
+                coverage=info.coverage if info else None,
             )
         )
     return changes
@@ -554,6 +581,12 @@ def _change_line(change: FileChange, lane: str) -> str:
     ]
     if change.contradiction is not ContradictionState.NONE:
         parts.append(f"contradiction={change.contradiction.value}")
+    if change.coverage is not None:
+        parts.append(f"coverage={change.coverage.kind.value}")
+        if change.coverage.truncated:
+            parts.append("coverage_truncated=1")
+        if change.coverage.permission_limited:
+            parts.append("coverage_permission_limited=1")
     return f"- {change.kind.value} {change.path} [{' '.join(parts)}]"
 
 

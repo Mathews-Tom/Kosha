@@ -13,7 +13,14 @@ package.
 
 from __future__ import annotations
 
-from kosha.evidence.model import EvidenceDocument, RunStatus, SourceRun, hash_evidence_text
+from kosha.evidence.model import (
+    CoverageKind,
+    EvidenceDocument,
+    RunStatus,
+    SourceCoverage,
+    SourceRun,
+    hash_evidence_text,
+)
 from kosha.evidence.paths import (
     InvalidDigestError,
     InvalidRunIdError,
@@ -26,6 +33,7 @@ from kosha.evidence.paths import (
 from kosha.evidence.store import EvidenceConflictError, EvidenceCorruptionError, EvidenceStore
 
 __all__ = [
+    "CoverageKind",
     "EvidenceConflictError",
     "EvidenceCorruptionError",
     "EvidenceDocument",
@@ -33,6 +41,7 @@ __all__ = [
     "InvalidDigestError",
     "InvalidRunIdError",
     "RunStatus",
+    "SourceCoverage",
     "SourceRun",
     "bundle_identity",
     "evidence_root",

@@ -311,6 +311,7 @@ def test_ingest_json_dry_run_never_writes(
         "confidence",
         "impact",
         "contradiction",
+        "coverage",
     }
     # file content is never included in the JSON payload
     assert "content" not in change

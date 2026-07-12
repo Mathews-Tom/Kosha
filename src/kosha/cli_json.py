@@ -332,6 +332,11 @@ def ingest_json(result: IngestResult, *, dry_run: bool) -> dict[str, Any]:
                     "confidence": change.confidence,
                     "impact": change.impact.value,
                     "contradiction": change.contradiction.value,
+                    "coverage": (
+                        change.coverage.model_dump(mode="json")
+                        if change.coverage is not None
+                        else None
+                    ),
                 }
                 for change in result.plan.changes
             ],
@@ -463,6 +468,7 @@ def evidence_show_json(run: SourceRun, texts: Mapping[str, str] | None) -> dict[
         "status": run.status.value,
         "detector_names": list(run.detector_names),
         "warnings": list(run.warnings),
+        "coverage": run.coverage.model_dump(mode="json"),
         "evidence": [
             {
                 "sha256": document.sha256,

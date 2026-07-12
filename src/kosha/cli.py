@@ -74,7 +74,7 @@ from kosha.eval import (
     load_relate_cases,
 )
 from kosha.evidence import EvidenceCorruptionError, EvidenceStore
-from kosha.evidence.model import SourceRun
+from kosha.evidence.model import SourceCoverage, SourceRun
 from kosha.evidence.paths import evidence_root
 from kosha.evidence.replay import ReplayError, render_replay_text, replay_run
 from kosha.evidence.verify import render_verification_text, verify_evidence
@@ -1373,6 +1373,10 @@ def _render_evidence_show_text(run: SourceRun, texts: dict[str, str] | None) -> 
     ]
     if run.detector_names:
         lines.append(f"  detector_names:     {', '.join(run.detector_names)}")
+    if run.warnings:
+        lines.append("  warnings:")
+        lines.extend(f"    - {warning}" for warning in run.warnings)
+    lines.extend(_render_coverage_lines(run.coverage))
     lines.append(f"  evidence documents: {len(run.evidence)}")
     for document in run.evidence:
         lines.append(f"    - {document.sha256}")
@@ -1386,6 +1390,44 @@ def _render_evidence_show_text(run: SourceRun, texts: dict[str, str] | None) -> 
             lines.append("      content:")
             lines.extend(f"        {line}" for line in texts[document.sha256].splitlines())
     return "\n".join(lines)
+
+
+def _render_coverage_lines(coverage: SourceCoverage) -> list[str]:
+    """Render ``coverage``'s classification, bounds, and warnings (DEVELOPMENT_PLAN.md M5)."""
+    lines = [f"  coverage:           {coverage.kind.value}"]
+    if coverage.scope:
+        lines.append(f"    scope:            {coverage.scope}")
+    if coverage.requested_window_start is not None or coverage.requested_window_end is not None:
+        lines.append(
+            "    requested_window: "
+            f"{_iso_or_none(coverage.requested_window_start)} .. "
+            f"{_iso_or_none(coverage.requested_window_end)}"
+        )
+    if coverage.observed_window_start is not None or coverage.observed_window_end is not None:
+        lines.append(
+            "    observed_window:  "
+            f"{_iso_or_none(coverage.observed_window_start)} .. "
+            f"{_iso_or_none(coverage.observed_window_end)}"
+        )
+    if coverage.cursor_before is not None or coverage.cursor_after is not None:
+        lines.append(f"    cursor:           {coverage.cursor_before} -> {coverage.cursor_after}")
+    if coverage.configured_item_limit is not None or coverage.observed_item_count is not None:
+        lines.append(
+            f"    items:            {coverage.observed_item_count} observed "
+            f"(limit {coverage.configured_item_limit})"
+        )
+    if coverage.truncated:
+        lines.append("    truncated:        true")
+    if coverage.permission_limited:
+        lines.append("    permission_limited: true")
+    if coverage.warnings:
+        lines.append("    warnings:")
+        lines.extend(f"      - {warning}" for warning in coverage.warnings)
+    return lines
+
+
+def _iso_or_none(value: datetime | None) -> str:
+    return value.isoformat() if value is not None else "?"
 
 
 def _run_evidence_replay(args: argparse.Namespace) -> int:
