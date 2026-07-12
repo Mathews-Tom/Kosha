@@ -5,11 +5,17 @@ The registry is the network-serving boundary's dispatch table. It holds one
 explicit bundle identity for every operation, and delegates each traversal
 call to exactly one bundle. It never offers a cross-bundle search path.
 
-Each registration tracks a deterministic content revision, a health status,
-and the most recent refresh failure (if any) -- the model M8 live serving
-activates atomically against (see :mod:`kosha.server.revision`). Every
-traversal response and the bundle listing carry the serving revision that
-answered them.
+It is also the atomic activation boundary for M8 live serving. :meth:`refresh`
+detects a candidate on-disk revision, builds a brand-new (bundle, index,
+service) triple off the active path, validates it, and swaps the whole
+registration into place in one reference assignment guarded by a lock. A
+reader calling :meth:`call_tool` or :meth:`active_registration` concurrently
+with a refresh always observes the complete previous registration or the
+complete new one -- never a bundle paired with a mismatched index. On any
+candidate-construction failure the previous registration is left completely
+untouched; the failure is recorded as ``"failed"`` health with source-free
+error metadata (:class:`~kosha.server.revision.RefreshError`) rather than
+silently continuing to report the stale registration as current.
 """
 
 from __future__ import annotations
@@ -25,15 +31,18 @@ from kosha.index.embedding import EmbeddingIndex
 from kosha.mcp.service import AccessDeniedError, KoshaKnowledgeService
 from kosha.okf.load import load_bundle
 from kosha.providers import resolve_embedding_provider
+from kosha.providers.base import EmbeddingProvider
 from kosha.server.revision import (
     ActivationEvent,
     ActiveRegistration,
     RefreshError,
+    RefreshOutcome,
     RevisionHealth,
     compute_bundle_revision,
     default_clock,
     resolve_source_git_head,
 )
+from kosha.validate import validate_bundle
 
 ToolName = Literal[
     "claim_history",
@@ -73,6 +82,14 @@ class BundleHealthView(TypedDict):
     last_error: RefreshErrorView | None
 
 
+class RefreshValidationError(RuntimeError):
+    """Raised internally when a refresh candidate fails OKF conformance."""
+
+
+class RefreshConceptIdMismatchError(RuntimeError):
+    """Raised internally when a candidate bundle and its index disagree on concept ids."""
+
+
 @dataclass(frozen=True)
 class BundleRegistration:
     """One loaded service registered under a stable client-facing id."""
@@ -88,7 +105,7 @@ class BundleRegistration:
 
 
 class BundleRegistry:
-    """Explicit-bundle dispatch over traversal-only services, revision-tracked."""
+    """Explicit-bundle dispatch over traversal-only services, with atomic activation."""
 
     def __init__(
         self,
@@ -218,6 +235,111 @@ class BundleRegistry:
         result = _dispatch(registration.service, tool_name, arguments)
         return {**dict(result), "revision": registration.revision}
 
+    def refresh(
+        self,
+        bundle_id: str,
+        *,
+        provider: EmbeddingProvider | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> RefreshOutcome:
+        """Detect, validate, and atomically activate a changed on-disk bundle revision.
+
+        Follows the source spec's refresh algorithm: load the candidate into a
+        new :class:`~kosha.model.Bundle`, validate OKF conformance, build a new
+        :class:`~kosha.index.embedding.EmbeddingIndex`, confirm bundle and
+        index concept ids agree, construct a new
+        :class:`~kosha.mcp.service.KoshaKnowledgeService`, then swap the whole
+        registration into place under the lock. No-op when the on-disk content
+        hash already matches the active revision: nothing is reloaded, no
+        index is rebuilt, and no activation event is recorded. Any
+        candidate-construction failure leaves the active registration
+        completely untouched and is reported as ``"failed"`` health with
+        source-free error metadata -- never silently reported as current.
+        """
+
+        clock = clock or self._clock
+        current = self.active_registration(bundle_id)
+        root = Path(current.service.bundle.root_path)
+        try:
+            candidate_revision = compute_bundle_revision(root)
+        except Exception as exc:
+            return self._fail(bundle_id, current, "revision", exc, clock)
+        if candidate_revision == current.revision:
+            return RefreshOutcome(
+                bundle_id=bundle_id,
+                changed=False,
+                revision=current.revision,
+                health=self._health[bundle_id],
+                error=self._errors[bundle_id],
+            )
+        try:
+            bundle = load_bundle(root)
+        except Exception as exc:
+            return self._fail(bundle_id, current, "load", exc, clock)
+        try:
+            report = validate_bundle(root)
+            if report.errors:
+                raise RefreshValidationError(f"{len(report.errors)} conformance error(s)")
+        except Exception as exc:
+            return self._fail(bundle_id, current, "validate", exc, clock)
+        try:
+            index = EmbeddingIndex.build(bundle, provider or current.service.index.provider)
+            if set(bundle.concepts) != set(index.concept_ids):
+                raise RefreshConceptIdMismatchError("bundle and index concept ids diverged")
+        except Exception as exc:
+            return self._fail(bundle_id, current, "index", exc, clock)
+
+        new_registration = ActiveRegistration(
+            bundle_id=bundle_id,
+            service=KoshaKnowledgeService(
+                bundle,
+                index,
+                bundle_access=current.service.bundle_access,
+                clearance=current.service.clearance,
+            ),
+            revision=candidate_revision,
+            activated_at=clock().isoformat(),
+            source_git_head=resolve_source_git_head(root),
+        )
+        with self._lock:
+            active = dict(self._active)
+            active[bundle_id] = new_registration
+            self._active = active
+            self._health[bundle_id] = "current"
+            self._errors[bundle_id] = None
+            self._activation_events.append(
+                ActivationEvent(
+                    bundle_id=bundle_id,
+                    revision=candidate_revision,
+                    activated_at=new_registration.activated_at,
+                )
+            )
+        return RefreshOutcome(
+            bundle_id=bundle_id, changed=True, revision=candidate_revision, health="current"
+        )
+
+    def _fail(
+        self,
+        bundle_id: str,
+        current: ActiveRegistration,
+        stage: Literal["revision", "load", "validate", "index"],
+        exc: Exception,
+        clock: Callable[[], datetime],
+    ) -> RefreshOutcome:
+        error = RefreshError(
+            stage=stage, message=_stage_message(stage, exc), occurred_at=clock().isoformat()
+        )
+        with self._lock:
+            self._health[bundle_id] = "failed"
+            self._errors[bundle_id] = error
+        return RefreshOutcome(
+            bundle_id=bundle_id,
+            changed=False,
+            revision=current.revision,
+            health="failed",
+            error=error,
+        )
+
 
 def build_single_bundle_registry(
     bundle_path: Path,
@@ -297,6 +419,25 @@ def _activate(
         activated_at=clock().isoformat(),
         source_git_head=resolve_source_git_head(root),
     )
+
+
+_STAGE_MESSAGES: dict[str, str] = {
+    "revision": "bundle content could not be hashed",
+    "load": "bundle failed to load",
+    "validate": "bundle failed OKF conformance validation",
+    "index": "embedding index build failed",
+}
+
+
+def _stage_message(stage: str, exc: Exception) -> str:
+    # RefreshValidationError/RefreshConceptIdMismatchError messages are built
+    # entirely from counts and static text (never source/concept content), so
+    # they are safe to surface verbatim; every other exception is reported by
+    # type name only, since arbitrary library exception text could otherwise
+    # quote a fragment of the bundle it failed on.
+    if isinstance(exc, (RefreshValidationError, RefreshConceptIdMismatchError)):
+        return str(exc)
+    return f"{_STAGE_MESSAGES.get(stage, 'refresh failed')}: {type(exc).__name__}"
 
 
 def _error_view(error: RefreshError | None) -> RefreshErrorView | None:
