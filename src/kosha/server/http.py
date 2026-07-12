@@ -1,4 +1,4 @@
-"""Stdlib HTTP/SSE boundary over traversal-only bundle registries."""
+"""Stdlib HTTP boundary over traversal-only, revision-aware bundle registries."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from kosha.mcp.service import AccessDeniedError
 from kosha.server.registry import BundleRegistry, ToolArguments
+from kosha.server.revision import ActivationEvent, RefreshError, RefreshOutcome
 
 JsonObject = dict[str, object]
 _LOGGER = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ class KoshaHttpHandler(BaseHTTPRequestHandler):
     server: KoshaHttpServer
     protocol_version = "HTTP/1.1"
     _TOOL_PREFIX: ClassVar[str] = "/tools/"
+    _REFRESH_PREFIX: ClassVar[str] = "/refresh/"
 
     def do_GET(self) -> None:
         try:
@@ -52,22 +54,34 @@ class KoshaHttpHandler(BaseHTTPRequestHandler):
 
     def _handle_get(self) -> None:
         path = urlparse(self.path).path
+        registry = self.server.registry
         if path == "/bundles":
-            self._send_json(
-                HTTPStatus.OK,
-                {"bundles": self.server.registry.authorized_bundle_revisions()},
-            )
+            self._send_json(HTTPStatus.OK, {"bundles": registry.authorized_bundle_revisions()})
             return
-        if path == "/events":
-            self._send_sse("ready", {"bundles": self.server.registry.authorized_bundle_ids()})
+        if path == "/health":
+            bundles = [registry.health_view(bid) for bid in registry.authorized_bundle_ids()]
+            self._send_json(HTTPStatus.OK, {"bundles": bundles})
+            return
+        if path == "/activations":
+            authorized = set(registry.authorized_bundle_ids())
+            activations = [
+                _activation_body(event)
+                for event in registry.activation_events()
+                if event.bundle_id in authorized
+            ]
+            self._send_json(HTTPStatus.OK, {"activations": activations})
             return
         self._send_error(HTTPStatus.NOT_FOUND, "not_found", "endpoint not found")
 
     def _handle_post(self) -> None:
         path = urlparse(self.path).path
+        if path.startswith(self._REFRESH_PREFIX):
+            self._handle_refresh(path.removeprefix(self._REFRESH_PREFIX))
+            return
         if not path.startswith(self._TOOL_PREFIX):
             self._send_error(HTTPStatus.NOT_FOUND, "not_found", "endpoint not found")
             return
+
         tool_name = path.removeprefix(self._TOOL_PREFIX)
         if not tool_name or "/" in tool_name:
             self._send_error(HTTPStatus.NOT_FOUND, "not_found", "unknown traversal tool")
@@ -97,6 +111,22 @@ class KoshaHttpHandler(BaseHTTPRequestHandler):
             self._send_error(HTTPStatus.BAD_REQUEST, "bad_request", str(exc))
         else:
             self._send_json(HTTPStatus.OK, dict(result))
+
+    def _handle_refresh(self, bundle_id: str) -> None:
+        if not bundle_id or "/" in bundle_id:
+            self._send_error(HTTPStatus.NOT_FOUND, "not_found", "unknown bundle_id")
+            return
+        registry = self.server.registry
+        try:
+            registry.require_service(bundle_id).list_index("")  # ACL probe, no content read
+        except AccessDeniedError as exc:
+            self._send_error(HTTPStatus.FORBIDDEN, "access_denied", str(exc))
+            return
+        except KeyError as exc:
+            self._send_error(HTTPStatus.NOT_FOUND, "not_found", str(exc))
+            return
+        outcome = registry.refresh(bundle_id)
+        self._send_json(HTTPStatus.OK, _refresh_outcome_body(outcome))
 
     def log_message(self, format: str, *args: Any) -> None:
         """Silence default stderr logging; callers can wrap the server if needed."""
@@ -132,15 +162,6 @@ class KoshaHttpHandler(BaseHTTPRequestHandler):
             return None
         return cast(JsonObject, decoded)
 
-    def _send_sse(self, event: str, data: JsonObject) -> None:
-        payload = f"event: {event}\ndata: {json.dumps(data, sort_keys=True)}\n\n".encode()
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-        self.send_header("Cache-Control", "no-cache")
-        self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
-
     def _send_json(self, status: HTTPStatus, body: JsonObject | ErrorBody) -> None:
         payload = json.dumps(body, sort_keys=True).encode("utf-8")
         self.send_response(status)
@@ -173,3 +194,27 @@ def serve_forever(host: str, port: int, registry: BundleRegistry) -> None:
 
     with make_http_server(host, port, registry) as server:
         server.serve_forever()
+
+
+def _refresh_outcome_body(outcome: RefreshOutcome) -> JsonObject:
+    return {
+        "bundle_id": outcome.bundle_id,
+        "changed": outcome.changed,
+        "revision": outcome.revision,
+        "health": outcome.health,
+        "error": _error_body(outcome.error),
+    }
+
+
+def _error_body(error: RefreshError | None) -> JsonObject | None:
+    if error is None:
+        return None
+    return {"stage": error.stage, "message": error.message, "occurred_at": error.occurred_at}
+
+
+def _activation_body(event: ActivationEvent) -> JsonObject:
+    return {
+        "bundle_id": event.bundle_id,
+        "revision": event.revision,
+        "activated_at": event.activated_at,
+    }
