@@ -60,3 +60,4 @@ class FileChange(BaseModel):
     impact: Impact = Impact.LOW
     contradiction: ContradictionState = ContradictionState.NONE
     secret_detectors: frozenset[str] = Field(default_factory=frozenset)
+    evidence_sha256: frozenset[str] = Field(default_factory=frozenset)

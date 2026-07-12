@@ -87,6 +87,13 @@ class Claim(BaseModel):
     resolution policy did not already link the two via ``supersedes`` — the case
     where the incumbent claim stays current and the challenger is retained, not
     replaced (M7 claim lineage; system_design §4.3.1).
+
+    ``source_run_id`` / ``evidence_sha256`` link this claim back to the
+    :class:`~kosha.evidence.SourceRun` and normalized-text digest that produced
+    it (DEVELOPMENT_PLAN.md M3). Both are ``None`` for a claim hydrated from a
+    disk-loaded body (no evidence survives a reload in memory) or minted before
+    M3 -- the durable, reload-safe assertion of this linkage is the Git commit
+    trailer :mod:`kosha.audit.export` reads back, not this field.
     """
 
     claim_id: str
@@ -100,6 +107,8 @@ class Claim(BaseModel):
     effective_to: datetime | None = None
     reviewer: str | None = None
     contradicts: str | None = None
+    source_run_id: str | None = None
+    evidence_sha256: str | None = None
 
 
 class Concept(BaseModel):
@@ -170,7 +179,16 @@ class RawDoc(BaseModel):
     they pull a URL or local Markdown file and normalize it to plain text plus
     source metadata. The concept extractor segments ``text`` into candidate
     concepts; nothing downstream re-fetches the original source.
+
+    ``source_run_id`` / ``evidence_sha256`` are the evidence identity the
+    shared ingest boundary (:func:`kosha.ingest.guardrails.bind_evidence`)
+    attaches once a document has passed the early secret scan, before
+    extraction ever reads ``text`` (DEVELOPMENT_PLAN.md M3). Both are ``None``
+    for a document the scan rejected -- such a document never reaches
+    extraction, so no claim is ever minted from unscanned text.
     """
 
     source: Source
     text: str
+    source_run_id: str | None = None
+    evidence_sha256: str | None = None

@@ -10,7 +10,7 @@ not wired into the ingest pipeline (that is M3).
 
 from __future__ import annotations
 
-from kosha.evidence.model import EvidenceDocument, RunStatus, SourceRun
+from kosha.evidence.model import EvidenceDocument, RunStatus, SourceRun, hash_evidence_text
 from kosha.evidence.paths import (
     InvalidDigestError,
     InvalidRunIdError,
@@ -33,6 +33,7 @@ __all__ = [
     "SourceRun",
     "bundle_identity",
     "evidence_root",
+    "hash_evidence_text",
     "kosha_home",
     "validate_digest",
     "validate_run_id",

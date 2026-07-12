@@ -45,6 +45,8 @@ def make_claim(
     effective_from: datetime | None = None,
     effective_to: datetime | None = None,
     reviewer: str | None = None,
+    source_run_id: str | None = None,
+    evidence_sha256: str | None = None,
 ) -> Claim:
     """Build a ``current`` claim with a content-addressed id."""
     return Claim(
@@ -58,6 +60,8 @@ def make_claim(
         effective_from=effective_from,
         effective_to=effective_to,
         reviewer=reviewer,
+        source_run_id=source_run_id,
+        evidence_sha256=evidence_sha256,
     )
 
 
@@ -70,6 +74,8 @@ def supersede_claim(
     asserted_at: datetime,
     citations: Sequence[str] = (),
     reviewer: str | None = None,
+    source_run_id: str | None = None,
+    evidence_sha256: str | None = None,
 ) -> tuple[list[Claim], Claim]:
     """Retire ``target_id`` and append a replacement claim.
 
@@ -88,6 +94,8 @@ def supersede_claim(
         citations=citations,
         supersedes=target_id,
         reviewer=reviewer,
+        source_run_id=source_run_id,
+        evidence_sha256=evidence_sha256,
     )
     updated = [
         claim.model_copy(update={"status": ClaimStatus.SUPERSEDED})

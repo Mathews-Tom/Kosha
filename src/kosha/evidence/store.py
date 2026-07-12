@@ -21,7 +21,12 @@ from pathlib import Path
 
 import pydantic
 
-from kosha.evidence.model import SourceRun, source_run_from_json, source_run_to_json
+from kosha.evidence.model import (
+    SourceRun,
+    hash_evidence_text,
+    source_run_from_json,
+    source_run_to_json,
+)
 from kosha.evidence.paths import manifest_path, object_path, validate_digest
 
 _DIR_MODE = 0o700
@@ -61,7 +66,7 @@ class EvidenceStore:
         already on disk fails loud rather than silently overwriting.
         """
         payload = normalized_text.encode("utf-8")
-        digest = hashlib.sha256(payload).hexdigest()
+        digest = hash_evidence_text(normalized_text)
         path = object_path(self._root, digest)
         if path.exists():
             existing = path.read_bytes()

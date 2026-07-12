@@ -13,6 +13,7 @@ enhancement plan §9).
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from enum import StrEnum
 from typing import Self
@@ -20,6 +21,19 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from kosha.evidence.paths import validate_digest, validate_run_id
+
+
+def hash_evidence_text(text: str) -> str:
+    """Return the SHA-256 digest of ``text``'s exact UTF-8 bytes.
+
+    This is the one formula every evidence-producing surface must use: the
+    ingest boundary (to stamp a :class:`~kosha.model.RawDoc`/``Claim`` before
+    extraction), the private store (to address the object it writes), and a
+    later verifier (to confirm stored bytes still match). Computing it here
+    needs no filesystem access, so a caller can bind evidence identity to a
+    document before ever deciding whether that identity becomes durable.
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 class RunStatus(StrEnum):
