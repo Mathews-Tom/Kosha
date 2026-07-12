@@ -4,7 +4,7 @@ The `kosha` command is installed by `uv sync`; run it as `uv run kosha <command>
 
 <!-- kosha:sync:start cli-reference -->
 ```text
-kosha [--version] [-h] {doctor,validate,bench,calibrate,eval,ingest,serve,review-queue,export,evidence,recover,sync,release} ...
+kosha [--version] [-h] {doctor,validate,bench,calibrate,eval,ingest,serve,review-queue,export,evidence,source,recover,sync,release} ...
 kosha doctor
 kosha doctor providers
 kosha validate
@@ -29,6 +29,10 @@ kosha evidence
 kosha evidence verify
 kosha evidence show
 kosha evidence replay
+kosha source
+kosha source list
+kosha source run
+kosha source status
 kosha recover
 kosha recover backups
 kosha recover restore
@@ -331,6 +335,30 @@ uv run kosha evidence replay bundles/northwind <run-id>
 
 ---
 
+## `kosha source`
+
+```text
+kosha source list --config PATH [--json]
+kosha source run <instance-id> --config PATH [--bundle PATH] [--dry-run] [--yes] [--reviewer NAME] [--json]
+kosha source status <instance-id> --config PATH [--json]
+```
+
+Explicit shipped-connector registry, source instances, and durable cursor state (DEVELOPMENT_PLAN.md M6). `--config` points at an operator-authored JSON array of source-instance objects (`instance_id`, `connector_id`, non-secret `config`, `enabled`, optional `schedule`); no dynamic plugin loader or interactive editor exists, and config never stores secret values. Cursor state is wholly separate from the immutable evidence vault and lives privately at `~/.kosha/connectors/<instance-id>/` (honoring `KOSHA_HOME`), never inside the OKF bundle.
+
+**List.** Loads and validates every instance from `--config`, failing loud on an unknown `connector_id`, a missing required config key, or a duplicate `instance_id`.
+
+**Run.** Runs one instance once through the same plan -> approve -> commit gate as `kosha ingest` (`--yes` for non-interactive approval, `--reviewer` for the `Reviewed-by` trailer). The instance's cursor advances only after its evidence was actually persisted (a committed, non-dry-run run); a rejected approval, an empty plan, `--dry-run`, or a raised connector error all leave the prior cursor untouched and are recorded in the instance's bounded run history instead. Malformed on-disk state fails loud rather than silently resetting.
+
+**Status.** Shows one instance's non-secret configuration alongside its durable state: cursor, last successful run, and recent run history (success/rejected/failed, with a short non-secret diagnostic message). Reports `never run` honestly when no state exists yet.
+
+```bash
+uv run kosha source list --config sources.json
+uv run kosha source run local-policies --config sources.json --bundle bundles/northwind --yes
+uv run kosha source status local-policies --config sources.json
+```
+
+---
+
 ## `kosha recover`
 
 ```text
@@ -440,3 +468,6 @@ KOSHA_BUNDLE=bundles/northwind uv run kosha-mcp
 | `1` | `release` — bundle not conformant, or the release tag already exists |
 | `1` | `evidence verify`/`show`/`replay` — evidence corruption, missing accepted evidence, or nothing to replay |
 | `2` | `evidence` — no subcommand, or not a bundle directory |
+| `1` | `source run` — the connector's ingest attempt raised (recorded as a FAILED run; cursor unchanged) |
+| `2` | `source` — no subcommand, unknown `connector_id`/config entry, or not a bundle directory |
+| `1` | `source status`/`run` — malformed on-disk connector state |
