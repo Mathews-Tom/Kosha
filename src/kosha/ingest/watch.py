@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from kosha.evidence import CoverageKind, SourceCoverage
 from kosha.ingest.url import UrlIngestError, fetch_url
 from kosha.pipeline import IngestResult, ingest
 
@@ -65,6 +66,10 @@ class ScheduledIngest:
                 reader=None,
                 reviewer=self.reviewer,
                 raw_docs=[raw],
+                coverage=SourceCoverage(
+                    kind=CoverageKind.COMPLETE,
+                    scope=f"HTTP response body for {self.source}",
+                ),
             )
         source_path = self._materialize_source()
         return ingest(

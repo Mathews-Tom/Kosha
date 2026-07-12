@@ -21,7 +21,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from kosha.evidence import EvidenceDocument, RunStatus, SourceRun, hash_evidence_text
+from kosha.evidence import (
+    EvidenceDocument,
+    RunStatus,
+    SourceCoverage,
+    SourceRun,
+    hash_evidence_text,
+)
 from kosha.evidence.store import EvidenceStore
 from kosha.model import RawDoc, Source
 from kosha.security.prompt_guard import sanitize_untrusted_text
@@ -188,6 +194,7 @@ def bind_evidence(
     source_instance_id: str,
     started_at: datetime,
     completed_at: datetime,
+    coverage: SourceCoverage | None = None,
 ) -> tuple[list[RawDoc], EvidenceRun | None]:
     """Scan and stamp evidence identity onto ``docs`` before extraction.
 
@@ -205,6 +212,12 @@ def bind_evidence(
     Every other document is stamped with ``run_id`` and its content digest (a
     pure hash -- no filesystem write happens here). Returns ``(docs, None)``
     when ``docs`` is empty: there is no attempt to describe.
+
+    ``coverage`` states what portion of the source this run observed
+    (DEVELOPMENT_PLAN.md M5). Omitting it never infers ``complete`` -- the
+    caller is the only party that knows whether a traversal, response, or
+    bounded fetch was exhaustive, so an omitted ``coverage`` defaults to
+    :class:`~kosha.evidence.SourceCoverage`'s own honest ``unknown`` default.
     """
     if not docs:
         return list(docs), None
@@ -247,6 +260,7 @@ def bind_evidence(
         status=status,
         evidence=tuple(documents),
         detector_names=tuple(sorted(detector_names)),
+        coverage=coverage if coverage is not None else SourceCoverage(),
     )
     return bound, EvidenceRun(run=run, texts=texts)
 

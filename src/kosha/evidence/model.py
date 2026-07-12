@@ -44,6 +44,70 @@ class RunStatus(StrEnum):
     FAILED = "failed"
 
 
+class CoverageKind(StrEnum):
+    """How much of a source a run actually observed (DEVELOPMENT_PLAN.md M5).
+
+    Authority (:attr:`~kosha.model.Source.authority_rank`) answers which source
+    wins when assertions conflict; coverage answers what portion of that
+    source this run observed. The two are never combined into one field or
+    policy -- overloading authority with completeness would let a merely
+    partial retrieval outrank a source it never fully saw.
+    """
+
+    COMPLETE = "complete"
+    WINDOWED = "windowed"
+    CURSOR_INCREMENTAL = "cursor_incremental"
+    SAMPLED = "sampled"
+    BEST_EFFORT = "best_effort"
+    UNKNOWN = "unknown"
+
+
+class SourceCoverage(BaseModel):
+    """What portion of a source one :class:`SourceRun` observed.
+
+    Defaults to :attr:`CoverageKind.UNKNOWN` -- a caller that cannot establish
+    completeness must say so explicitly rather than have this model infer
+    ``complete`` by omission. ``scope`` is the human-readable statement of what
+    was actually covered (a traversal root and suffix, a single file snapshot,
+    a fetched response body); the window/cursor/limit fields describe a
+    bounded or incremental run, populated only by adapters that support them.
+    ``truncated``/``permission_limited`` flag a bounded fallback, which can
+    never coexist with ``complete`` -- that combination would assert
+    exhaustive coverage of a run that is, by its own metadata, cut short.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    kind: CoverageKind = CoverageKind.UNKNOWN
+    scope: str | None = None
+    requested_window_start: datetime | None = None
+    requested_window_end: datetime | None = None
+    observed_window_start: datetime | None = None
+    observed_window_end: datetime | None = None
+    cursor_before: str | None = None
+    cursor_after: str | None = None
+    configured_item_limit: int | None = Field(default=None, ge=0)
+    observed_item_count: int | None = Field(default=None, ge=0)
+    truncated: bool = False
+    permission_limited: bool = False
+    warnings: tuple[str, ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="after")
+    def _validate_invariants(self) -> Self:
+        if self.truncated and self.kind is CoverageKind.COMPLETE:
+            raise ValueError("a truncated run cannot declare complete coverage")
+        if self.permission_limited and self.kind is CoverageKind.COMPLETE:
+            raise ValueError("a permission-limited run cannot declare complete coverage")
+        windows = (
+            (self.requested_window_start, self.requested_window_end, "requested"),
+            (self.observed_window_start, self.observed_window_end, "observed"),
+        )
+        for start, end, label in windows:
+            if start is not None and end is not None and end < start:
+                raise ValueError(f"{label} window end precedes its start")
+        return self
+
+
 class EvidenceDocument(BaseModel):
     """One immutable, content-addressed record of exact normalized model-facing text.
 
@@ -69,7 +133,18 @@ class EvidenceDocument(BaseModel):
 
 
 class SourceRun(BaseModel):
-    """One deterministic, immutable manifest of a single ingest attempt against a source."""
+    """One deterministic, immutable manifest of a single ingest attempt against a source.
+
+    ``coverage`` states what portion of the source this run actually observed
+    (DEVELOPMENT_PLAN.md M5) -- a field wholly separate from authority: this
+    manifest carries no ``authority_rank`` of its own, only the completeness
+    classification a reviewer or audit consumer needs beside the source's
+    already-recorded authority. It defaults to :attr:`CoverageKind.UNKNOWN`
+    exactly like :class:`SourceCoverage` itself, so a legacy pre-M5 manifest
+    loaded from disk (with no ``coverage`` key) reports honestly that its
+    completeness was never established, rather than being silently upgraded
+    to ``complete``.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -84,6 +159,7 @@ class SourceRun(BaseModel):
     evidence: tuple[EvidenceDocument, ...] = Field(default_factory=tuple)
     detector_names: tuple[str, ...] = Field(default_factory=tuple)
     warnings: tuple[str, ...] = Field(default_factory=tuple)
+    coverage: SourceCoverage = Field(default_factory=SourceCoverage)
 
     @field_validator("run_id")
     @classmethod
