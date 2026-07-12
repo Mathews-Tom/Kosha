@@ -72,7 +72,9 @@ from kosha.sync.traversal import (
     check_fallback_artifacts,
     check_mcp_integration_doc,
     check_traversal_surfaces,
+    live_mcp_resources,
     live_mcp_tools,
+    render_mcp_resource_rows,
     render_mcp_tool_rows,
 )
 
@@ -435,6 +437,47 @@ def test_render_mcp_tool_rows_produces_rows_present_in_mcp_integration_doc() -> 
 
 
 # ---------------------------------------------------------------------------
+# live_mcp_resources / render_mcp_resource_rows: the live FastMCP registry-
+# server resource surface (M9) parsed from kosha.mcp.server, and its docs
+# table rendering.
+# ---------------------------------------------------------------------------
+
+
+def test_live_mcp_resources_includes_every_uri_shape() -> None:
+    resources = {resource.uri: resource for resource in live_mcp_resources()}
+
+    assert set(resources) == {
+        "kosha://bundles",
+        "kosha://bundles/{bundle_id}",
+        "kosha://bundles/{bundle_id}/index/{scope}",
+        "kosha://bundles/{bundle_id}/concepts/{concept_id}",
+    }
+
+
+def test_live_mcp_resources_does_not_import_kosha_mcp_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mirrors ``test_live_mcp_tools_does_not_import_kosha_mcp_server``: the
+    resource surface is parsed the same AST-only way, so doc-sync still
+    never requires the optional ``mcp`` extra to be installed."""
+    monkeypatch.delitem(sys.modules, "kosha.mcp.server", raising=False)
+
+    resources = live_mcp_resources()
+
+    assert "kosha.mcp.server" not in sys.modules
+    assert {resource.uri for resource in resources} >= {"kosha://bundles"}
+
+
+def test_render_mcp_resource_rows_produces_rows_present_in_mcp_integration_doc() -> None:
+    rows = render_mcp_resource_rows()
+
+    assert len(rows) == len(live_mcp_resources())
+    doc_text = (REPO_ROOT / MCP_DOC_PATH).read_text(encoding="utf-8")
+    for row in rows:
+        assert row in doc_text
+
+
+# ---------------------------------------------------------------------------
 # check_mcp_integration_doc: docs/mcp-integration.md tool table drift against
 # the live kosha.mcp.server registry tool surface.
 # ---------------------------------------------------------------------------
@@ -465,6 +508,29 @@ def test_check_mcp_integration_doc_flags_a_tool_row_missing_from_the_doc(
     assert mismatch.surface == "mcp-integration"
     assert mismatch.path == tmp_path / MCP_DOC_PATH
     assert mismatch.details == (f"missing row: {claim_history_row}",)
+
+
+def test_check_mcp_integration_doc_flags_a_resource_row_missing_from_the_doc(
+    tmp_path: Path,
+) -> None:
+    concept_resource_row = next(
+        row for row in render_mcp_resource_rows() if row.startswith("| `kosha://bundles/{bundle_id}/concepts")
+    )
+    doc_text = (REPO_ROOT / MCP_DOC_PATH).read_text(encoding="utf-8")
+    assert concept_resource_row in doc_text
+    drifted_text = doc_text.replace(concept_resource_row, "")
+    assert concept_resource_row not in drifted_text
+
+    (tmp_path / MCP_DOC_PATH.parent).mkdir(parents=True)
+    (tmp_path / MCP_DOC_PATH).write_text(drifted_text, encoding="utf-8")
+
+    mismatches = check_mcp_integration_doc(tmp_path)
+
+    assert len(mismatches) == 1
+    mismatch = mismatches[0]
+    assert mismatch.surface == "mcp-integration"
+    assert mismatch.path == tmp_path / MCP_DOC_PATH
+    assert mismatch.details == (f"missing row: {concept_resource_row}",)
 
 
 # ---------------------------------------------------------------------------

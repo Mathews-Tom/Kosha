@@ -115,12 +115,18 @@ def test_write_mcp_integration_doc(tmp_path):
     mcp_doc.write_text(
         "<!-- kosha:sync:start mcp-tool-table -->\n"
         "old\n"
+        "<!-- kosha:sync:end -->\n"
+        "<!-- kosha:sync:start mcp-resource-table -->\n"
+        "old\n"
         "<!-- kosha:sync:end -->"
     )
 
     write_mcp_integration_doc(tmp_path)
 
-    assert "| Tool | Signature |" in mcp_doc.read_text()
+    content = mcp_doc.read_text()
+    assert "| Tool | Signature |" in content
+    assert "| Resource URI | Content |" in content
+    assert "kosha://bundles" in content
 
 
 def test_write_fallback_artifacts(tmp_path):
