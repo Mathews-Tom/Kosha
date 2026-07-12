@@ -91,7 +91,8 @@ def test_an_unknown_bundle_id_fails_over_mcp(registry: BundleRegistry) -> None:
 def test_list_bundles_excludes_a_bundle_without_clearance(registry: BundleRegistry) -> None:
     result = _call(registry, "list_bundles", {})
     assert result.isError is False
-    assert set(result.structuredContent["bundles"]) == {"northwind", "good"}
+    bundle_ids = {entry["bundle_id"] for entry in result.structuredContent["bundles"]}
+    assert bundle_ids == {"northwind", "good"}
 
 
 def test_find_concepts_never_returns_another_bundles_concepts(
