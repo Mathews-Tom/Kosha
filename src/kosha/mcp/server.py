@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import cast
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from kosha.mcp import resources
 from kosha.mcp.resources import (
@@ -47,6 +48,14 @@ from kosha.mcp.service import (
 )
 from kosha.mcp.subscriptions import ResourceSubscriptionRegistry, wire_subscriptions
 from kosha.server.registry import BundleRegistration, BundleRegistry, BundleRevisionView
+
+# All traversal tools and resources are read-only, non-destructive, idempotent,
+# and closed-world (source spec §16): they never mutate the bundle, repeating a
+# call with the same arguments has no additional effect, and they never reach
+# outside the addressed bundle (no raw-text search, no cross-bundle search).
+_READ_ONLY_ANNOTATIONS = ToolAnnotations(
+    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+)
 
 _INSTRUCTIONS = (
     "Answer from this OKF bundle by traversal, never by guessing or grepping. "
@@ -79,24 +88,24 @@ def build_registry_server_with_subscriptions(
     """
     server = FastMCP(name, instructions=_INSTRUCTIONS)
 
-    @server.tool()
+    @server.tool(annotations=_READ_ONLY_ANNOTATIONS)
     def list_bundles() -> BundleListView:
         """List bundles visible to the caller's configured clearance, with revision."""
         return resources.read_bundles_list(registry)
 
-    @server.tool()
+    @server.tool(annotations=_READ_ONLY_ANNOTATIONS)
     def list_index(bundle_id: str, scope: str = "") -> RevisionedIndexView:
         """List a bundle directory's direct contents (subdirectories + concepts)."""
         result = registry.call_tool(bundle_id, "list_index", {"scope": scope})
         return cast(RevisionedIndexView, result)
 
-    @server.tool()
+    @server.tool(annotations=_READ_ONLY_ANNOTATIONS)
     def read_frontmatter(bundle_id: str, concept_id: str) -> RevisionedFrontmatterView:
         """Read a concept's frontmatter without its body."""
         result = registry.call_tool(bundle_id, "read_frontmatter", {"concept_id": concept_id})
         return cast(RevisionedFrontmatterView, result)
 
-    @server.tool()
+    @server.tool(annotations=_READ_ONLY_ANNOTATIONS)
     def load_concept(
         bundle_id: str, concept_id: str, asof: str | None = None
     ) -> RevisionedConceptView:
@@ -106,19 +115,19 @@ def build_registry_server_with_subscriptions(
         )
         return cast(RevisionedConceptView, result)
 
-    @server.tool()
+    @server.tool(annotations=_READ_ONLY_ANNOTATIONS)
     def find_concepts(bundle_id: str, query: str, k: int = 3) -> RevisionedFindView:
         """Jump to concepts within one addressed bundle, never across bundles."""
         result = registry.call_tool(bundle_id, "find_concepts", {"query": query, "k": k})
         return cast(RevisionedFindView, result)
 
-    @server.tool()
+    @server.tool(annotations=_READ_ONLY_ANNOTATIONS)
     def follow_links(bundle_id: str, concept_id: str) -> RevisionedLinksView:
         """List a concept's links and backlinks so you can traverse the graph."""
         result = registry.call_tool(bundle_id, "follow_links", {"concept_id": concept_id})
         return cast(RevisionedLinksView, result)
 
-    @server.tool()
+    @server.tool(annotations=_READ_ONLY_ANNOTATIONS)
     def claim_history(
         bundle_id: str, concept_id: str, claim_id: str | None = None
     ) -> RevisionedClaimHistoryView:
@@ -182,32 +191,32 @@ def _build_single_service_server(
     """Build the legacy single-bundle in-process server used by existing tests."""
     server = FastMCP(name, instructions=_INSTRUCTIONS)
 
-    @server.tool()
+    @server.tool(annotations=_READ_ONLY_ANNOTATIONS)
     def list_index(scope: str = "") -> IndexView:
         """List a bundle directory's direct contents (subdirectories + concepts)."""
         return service.list_index(scope)
 
-    @server.tool()
+    @server.tool(annotations=_READ_ONLY_ANNOTATIONS)
     def read_frontmatter(concept_id: str) -> FrontmatterView:
         """Read a concept's frontmatter without its body."""
         return service.read_frontmatter(concept_id)
 
-    @server.tool()
+    @server.tool(annotations=_READ_ONLY_ANNOTATIONS)
     def load_concept(concept_id: str, asof: str | None = None) -> ConceptView:
         """Load a concept's body, showing only the claims currently in force."""
         return service.load_concept(concept_id, asof=asof)
 
-    @server.tool()
+    @server.tool(annotations=_READ_ONLY_ANNOTATIONS)
     def find_concepts(query: str, k: int = 3) -> FindView:
         """Jump to concepts within this bundle, never raw-searching the corpus."""
         return service.find_concepts(query, k)
 
-    @server.tool()
+    @server.tool(annotations=_READ_ONLY_ANNOTATIONS)
     def follow_links(concept_id: str) -> LinksView:
         """List a concept's links and backlinks so you can traverse the graph."""
         return service.follow_links(concept_id)
 
-    @server.tool()
+    @server.tool(annotations=_READ_ONLY_ANNOTATIONS)
     def claim_history(concept_id: str, claim_id: str | None = None) -> ClaimHistoryView:
         """Show a concept's claim lineage: full audit trail, or one claim's chain."""
         return service.claim_history(concept_id, claim_id)
