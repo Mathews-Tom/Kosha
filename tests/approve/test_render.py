@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from kosha.approve import ChangeRouting, Lane, render_change_item, render_flag_item, render_plan
 from kosha.evidence import CoverageKind, SourceCoverage
 from kosha.plan import ChangeKind, ChangePlan, FileChange, Flag
@@ -92,6 +95,18 @@ def test_render_change_item_shows_coverage_warnings_with_no_secret_leakage() -> 
     assert "coverage warning: stopped after the configured byte cap" in text
     assert "AKIA" not in text
     assert "secret" not in text.lower()
+
+
+def test_a_credential_shaped_warning_is_rejected_before_it_ever_reaches_rendering() -> None:
+    # Enforcement lives on SourceCoverage itself (tests/evidence/test_coverage_model.py),
+    # so render_change_item can never be handed a credential-shaped warning to
+    # begin with -- this closes the loop from the render layer's own tests.
+    with pytest.raises(ValidationError, match="secret detector"):
+        SourceCoverage(
+            kind=CoverageKind.BEST_EFFORT,
+            truncated=True,
+            warnings=("deploy key: AKIAABCDEFGHIJKLMNOP",),
+        )
 
 
 def test_render_change_item_omits_coverage_warning_lines_when_none_recorded() -> None:

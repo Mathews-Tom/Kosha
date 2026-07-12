@@ -21,6 +21,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from kosha.evidence.paths import validate_digest, validate_run_id
+from kosha.security.secret_scan import scan_text
 
 
 def hash_evidence_text(text: str) -> str:
@@ -74,6 +75,12 @@ class SourceCoverage(BaseModel):
     ``truncated``/``permission_limited`` flag a bounded fallback, which can
     never coexist with ``complete`` -- that combination would assert
     exhaustive coverage of a run that is, by its own metadata, cut short.
+
+    ``warnings`` is validated, not merely a documented convention: each entry
+    is scanned with the same detector :func:`kosha.security.secret_scan.scan_text`
+    uses for source text, and rejected -- naming only the detector, never the
+    match -- if it looks credential-shaped, and capped in length so a warning
+    cannot become a vehicle for pasting a source excerpt.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -91,6 +98,23 @@ class SourceCoverage(BaseModel):
     truncated: bool = False
     permission_limited: bool = False
     warnings: tuple[str, ...] = Field(default_factory=tuple)
+
+    @field_validator("warnings")
+    @classmethod
+    def _validate_warnings(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for warning in value:
+            if len(warning) > 500:
+                raise ValueError(
+                    f"coverage warning exceeds 500 chars ({len(warning)}); "
+                    "a warning is a short note, not a source excerpt"
+                )
+            detectors = scan_text(warning)
+            if detectors:
+                raise ValueError(
+                    f"coverage warning matched secret detector(s) {sorted(detectors)}; "
+                    "warnings may never carry credential-shaped text"
+                )
+        return value
 
     @model_validator(mode="after")
     def _validate_invariants(self) -> Self:

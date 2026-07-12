@@ -22,7 +22,12 @@ to additionally attach each changed file's committed content, so a leak of
 the export cannot happen by omission. A commit's evidence provenance is
 reported honestly: ``"verified"`` only when both trailers are present,
 ``"legacy"`` for any other ingest commit (pre-M3 history, or a run that
-minted no evidence-bound claim) — never fabricated as verified.
+minted no evidence-bound claim) — never fabricated as verified. A ``coverage``
+trailer attr plus ``coverage_truncated``/``coverage_permission_limited`` flags
+(DEVELOPMENT_PLAN.md M5) carry the classification and flags the same durable
+way; the free-text coverage *warnings* are deliberately not embedded in the
+commit message (bounded, human-authored provenance stays bounded) and remain
+recoverable in full from the source run's manifest via ``kosha evidence show``.
 """
 
 from __future__ import annotations

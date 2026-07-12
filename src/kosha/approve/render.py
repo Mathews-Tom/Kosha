@@ -6,9 +6,11 @@ judge. Rendering is deterministic — the plan is already ordered — and annota
 each change with the provenance the autonomy router reads (confidence, impact, and
 whether a contradiction was resolved or escalated), so a reviewer sees *why* a
 change needs (or does not need) their attention. A change whose evidence carries
-non-``complete`` coverage (DEVELOPMENT_PLAN.md M5) is annotated the same way, plus
-any structured coverage warning, so a reviewer never mistakes a bounded or
-incremental retrieval for an exhaustive one.
+non-``complete`` coverage (DEVELOPMENT_PLAN.md M5) is annotated the same way
+(``coverage=<kind>``) in both this summary view and the per-item review view;
+the per-item view (:func:`render_change_item`) additionally lists each
+structured coverage warning, so a reviewer deciding one change at a time never
+mistakes a bounded or incremental retrieval for an exhaustive one.
 """
 
 from __future__ import annotations

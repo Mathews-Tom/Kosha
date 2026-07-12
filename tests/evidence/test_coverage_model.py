@@ -169,6 +169,38 @@ def test_a_permission_limited_run_carries_a_non_secret_warning() -> None:
     assert "not readable" in loaded.coverage.warnings[0]
 
 
+# --- warnings are enforced, not just documented convention ----------------------
+
+
+def test_a_warning_matching_a_known_credential_shape_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="secret detector"):
+        SourceCoverage(
+            kind=CoverageKind.BEST_EFFORT,
+            truncated=True,
+            warnings=("deploy key: AKIAABCDEFGHIJKLMNOP for the release pipeline",),
+        )
+
+
+def test_a_warning_matching_a_generic_credential_assignment_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="secret detector"):
+        SourceCoverage(
+            kind=CoverageKind.UNKNOWN,
+            warnings=("api_key: 'sk-abcdefghijklmnopqrstuvwx'",),
+        )
+
+
+def test_an_oversized_warning_is_rejected_even_without_a_secret_shape() -> None:
+    # A length cap keeps a "warning" from becoming a vehicle for pasting a
+    # source excerpt that merely does not match a known credential pattern.
+    with pytest.raises(ValidationError, match="500 chars"):
+        SourceCoverage(kind=CoverageKind.UNKNOWN, warnings=("x" * 501,))
+
+
+def test_a_benign_warning_at_the_length_boundary_is_accepted() -> None:
+    coverage = SourceCoverage(kind=CoverageKind.UNKNOWN, warnings=("x" * 500,))
+    assert coverage.warnings == ("x" * 500,)
+
+
 # --- coverage is a separate field from authority --------------------------------
 
 
