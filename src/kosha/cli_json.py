@@ -42,6 +42,7 @@ from kosha.eval import (
 from kosha.evidence.model import SourceRun
 from kosha.evidence.replay import ReplayReport
 from kosha.evidence.verify import VerificationReport
+from kosha.gaps.model import KnowledgeGap
 from kosha.pipeline import IngestResult
 from kosha.recovery import BackupTag, RecoveryRecord, ReindexPlan, RestorePlan
 from kosha.release import ReleaseRecord
@@ -565,3 +566,38 @@ def source_run_json(report: SourceRunReport) -> dict[str, Any]:
         "branch": result.branch if result is not None else None,
         "state": report.state.model_dump(mode="json"),
     }
+
+
+
+def gap_json(gap: KnowledgeGap) -> dict[str, Any]:
+    """Structured view of one :class:`~kosha.gaps.model.KnowledgeGap`."""
+    return gap.model_dump(mode="json")
+
+
+def gap_scan_json(events: Sequence[KnowledgeGap], merged: Sequence[KnowledgeGap]) -> dict[str, Any]:
+    """Structured ``kosha gap scan --json`` result.
+
+    ``events`` is this scan's fresh producer output before merging;
+    ``merged`` is the full post-merge ledger, so a caller can see both what
+    this scan observed and the ledger's resulting state.
+    """
+    return {
+        "scanned_events": len(events),
+        "categories": sorted({event.kind.value for event in events}),
+        "ledger": [gap_json(gap) for gap in merged],
+    }
+
+
+def gap_list_json(gaps: Sequence[KnowledgeGap]) -> dict[str, Any]:
+    """Structured ``kosha gap list --json`` result."""
+    return {"gaps": [gap_json(gap) for gap in gaps]}
+
+
+def gap_show_json(gap: KnowledgeGap) -> dict[str, Any]:
+    """Structured ``kosha gap show --json`` result."""
+    return gap_json(gap)
+
+
+def gap_transition_json(gap: KnowledgeGap) -> dict[str, Any]:
+    """Structured ``kosha gap answer|invalidate|stale --json`` result."""
+    return gap_json(gap)

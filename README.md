@@ -200,6 +200,13 @@ Without MCP, the same protocol ships as an `AGENTS.md` fragment ([`consumer/AGEN
 | `kosha source list` | List configured source instances from a source-instance config file. |
 | `kosha source run` | Run one configured source instance once behind the plan->approve->commit gate. |
 | `kosha source status` | Show one source instance's configuration and durable cursor state. |
+| `kosha gap` | Track deterministic evidence-backed knowledge gaps for a bundle. |
+| `kosha gap scan` | Scan a bundle's compliance history for gap events and merge them into the ledger. |
+| `kosha gap list` | List every knowledge gap this bundle's ledger has ever recorded. |
+| `kosha gap show` | Show one stored knowledge gap's full record. |
+| `kosha gap answer` | Answer an open gap, linking evidence or a reviewed change. |
+| `kosha gap invalidate` | Invalidate an open gap (reviewed as not a real gap). |
+| `kosha gap stale` | Mark an open gap stale (aged out without resolution). |
 | `kosha recover` | Backup-tag-based recovery: list backups, restore, or reindex. |
 | `kosha recover backups` | List available backup tags. |
 | `kosha recover restore` | Restore a bundle to a backup tag's recorded state. |
