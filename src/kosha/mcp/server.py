@@ -15,10 +15,25 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import cast
 
 from mcp.server.fastmcp import FastMCP
 
+from kosha.mcp import resources
+from kosha.mcp.resources import (
+    BUNDLE_URI_TEMPLATE,
+    BUNDLES_LIST_URI,
+    CONCEPT_URI_TEMPLATE,
+    INDEX_URI_TEMPLATE,
+    RESOURCE_MIME_TYPE,
+    BundleListView,
+    RevisionedClaimHistoryView,
+    RevisionedConceptView,
+    RevisionedFindView,
+    RevisionedFrontmatterView,
+    RevisionedIndexView,
+    RevisionedLinksView,
+)
 from kosha.mcp.service import (
     ClaimHistoryView,
     ConceptView,
@@ -30,38 +45,8 @@ from kosha.mcp.service import (
     resolve_bundle_access,
     resolve_clearance,
 )
+from kosha.mcp.subscriptions import ResourceSubscriptionRegistry, wire_subscriptions
 from kosha.server.registry import BundleRegistration, BundleRegistry, BundleRevisionView
-
-
-class BundleListView(TypedDict):
-    """``list_bundles``' response: every authorized bundle's id and revision."""
-
-    bundles: list[BundleRevisionView]
-
-
-class RevisionedIndexView(IndexView):
-    revision: str
-
-
-class RevisionedFrontmatterView(FrontmatterView):
-    revision: str
-
-
-class RevisionedConceptView(ConceptView):
-    revision: str
-
-
-class RevisionedFindView(FindView):
-    revision: str
-
-
-class RevisionedLinksView(LinksView):
-    revision: str
-
-
-class RevisionedClaimHistoryView(ClaimHistoryView):
-    revision: str
-
 
 _INSTRUCTIONS = (
     "Answer from this OKF bundle by traversal, never by guessing or grepping. "
@@ -77,17 +62,27 @@ def build_server(
     """Build a FastMCP server over a single service or explicit-bundle registry."""
     if isinstance(registry, KoshaKnowledgeService):
         return _build_single_service_server(registry, name=name)
-    return _build_registry_server(registry, name=name)
+    server, _subscriptions = build_registry_server_with_subscriptions(registry, name=name)
+    return server
 
 
-def _build_registry_server(registry: BundleRegistry, *, name: str) -> FastMCP:
-    """Build a FastMCP server whose tools require an explicit ``bundle_id``."""
+def build_registry_server_with_subscriptions(
+    registry: BundleRegistry, *, name: str = "kosha-knowledge"
+) -> tuple[FastMCP, ResourceSubscriptionRegistry]:
+    """Build the registry-backed server plus its resource-subscription registry.
+
+    Most callers should use :func:`build_server`; this variant additionally
+    returns the :class:`~kosha.mcp.subscriptions.ResourceSubscriptionRegistry`
+    backing this server's sessions, for production or test code that drives
+    :func:`kosha.mcp.subscriptions.refresh_and_notify` against the exact
+    registry an activation happened on.
+    """
     server = FastMCP(name, instructions=_INSTRUCTIONS)
 
     @server.tool()
     def list_bundles() -> BundleListView:
         """List bundles visible to the caller's configured clearance, with revision."""
-        return {"bundles": registry.authorized_bundle_revisions()}
+        return resources.read_bundles_list(registry)
 
     @server.tool()
     def list_index(bundle_id: str, scope: str = "") -> RevisionedIndexView:
@@ -133,7 +128,52 @@ def _build_registry_server(registry: BundleRegistry, *, name: str) -> FastMCP:
         )
         return cast(RevisionedClaimHistoryView, result)
 
-    return server
+    @server.resource(
+        BUNDLES_LIST_URI,
+        name="bundles",
+        title="Kosha bundles",
+        mime_type=RESOURCE_MIME_TYPE,
+    )
+    def resource_bundles_list() -> BundleListView:
+        """The authorized bundle list, with each bundle's active revision."""
+        return resources.read_bundles_list(registry)
+
+    @server.resource(
+        BUNDLE_URI_TEMPLATE,
+        name="bundle",
+        title="Kosha bundle",
+        mime_type=RESOURCE_MIME_TYPE,
+    )
+    def resource_bundle(bundle_id: str) -> BundleRevisionView:
+        """One bundle's id and active revision."""
+        return resources.read_bundle(registry, resources.decode_segment(bundle_id))
+
+    @server.resource(
+        INDEX_URI_TEMPLATE,
+        name="bundle_index",
+        title="Kosha bundle index",
+        mime_type=RESOURCE_MIME_TYPE,
+    )
+    def resource_bundle_index(bundle_id: str, scope: str) -> RevisionedIndexView:
+        """A bundle directory's direct contents, at the active revision."""
+        return resources.read_index(
+            registry, resources.decode_segment(bundle_id), resources.decode_segment(scope)
+        )
+
+    @server.resource(
+        CONCEPT_URI_TEMPLATE,
+        name="bundle_concept",
+        title="Kosha bundle concept",
+        mime_type=RESOURCE_MIME_TYPE,
+    )
+    def resource_bundle_concept(bundle_id: str, concept_id: str) -> RevisionedConceptView:
+        """A concept's body, filtered to claims in force -- same as load_concept(asof=None)."""
+        return resources.read_concept(
+            registry, resources.decode_segment(bundle_id), resources.decode_segment(concept_id)
+        )
+
+    subscriptions = wire_subscriptions(server, registry)
+    return server, subscriptions
 
 
 def _build_single_service_server(
