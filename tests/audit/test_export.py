@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from kosha.audit import build_report, require_export_access, to_json, to_markdown
-from kosha.evidence import EvidenceStore
+from kosha.evidence import CoverageKind, EvidenceStore, SourceCoverage
 from kosha.git_store import GitStore
 from kosha.mcp.service import AccessDeniedError
 from kosha.pipeline import ingest
@@ -312,3 +312,143 @@ def test_to_markdown_reports_evidence_status_per_commit(tmp_path: Path) -> None:
     document = to_markdown(build_report(bundle))
     assert "- evidence: verified" in document
     assert "evidence: verified=1 legacy=0" in document
+
+
+# --- M5: coverage metadata reaches the audit export --------------------------
+
+
+def test_a_complete_coverage_change_reports_its_kind_and_no_truncation_flags(
+    tmp_path: Path,
+) -> None:
+    bundle, store = _seed_bundle(tmp_path)
+    _ingest_once(tmp_path, bundle, store, reviewer=None)
+
+    report = build_report(bundle)
+    evidenced = [
+        ch for c in report.commits for ch in c.changes if ch.coverage is not None
+    ]
+    assert evidenced
+    assert evidenced[0].coverage == "complete"
+    assert evidenced[0].coverage_truncated is False
+    assert evidenced[0].coverage_permission_limited is False
+
+
+def test_a_windowed_coverage_change_is_parsed_and_counted_as_incomplete(
+    tmp_path: Path,
+) -> None:
+    bundle, store = _seed_bundle(tmp_path)
+    result = ingest(
+        _policy_update_source(tmp_path),
+        bundle,
+        asof=_ASOF,
+        source_authority=10,
+        git_store=store,
+        branch="ingest/windowed",
+        coverage=SourceCoverage(kind=CoverageKind.WINDOWED, scope="last 24h"),
+    )
+    assert result.committed is True
+
+    report = build_report(bundle)
+    evidenced = [
+        ch for c in report.commits for ch in c.changes if ch.coverage is not None
+    ]
+    assert evidenced
+    assert evidenced[0].coverage == "windowed"
+    assert report.incomplete_coverage_count == 1
+
+
+def test_a_truncated_permission_limited_coverage_change_parses_both_flags(
+    tmp_path: Path,
+) -> None:
+    bundle, store = _seed_bundle(tmp_path)
+    result = ingest(
+        _policy_update_source(tmp_path),
+        bundle,
+        asof=_ASOF,
+        source_authority=10,
+        git_store=store,
+        branch="ingest/bounded",
+        coverage=SourceCoverage(
+            kind=CoverageKind.BEST_EFFORT,
+            truncated=True,
+            permission_limited=True,
+        ),
+    )
+    assert result.committed is True
+
+    report = build_report(bundle)
+    evidenced = [
+        ch for c in report.commits for ch in c.changes if ch.coverage is not None
+    ]
+    assert evidenced
+    assert evidenced[0].coverage == "best_effort"
+    assert evidenced[0].coverage_truncated is True
+    assert evidenced[0].coverage_permission_limited is True
+
+
+def test_a_change_with_no_evidence_link_reports_no_coverage_not_fabricated(
+    tmp_path: Path,
+) -> None:
+    bundle, store = _seed_bundle(tmp_path)
+    _ingest_once(tmp_path, bundle, store, reviewer=None)
+
+    report = build_report(bundle)
+    index_or_log = [
+        ch
+        for c in report.commits
+        for ch in c.changes
+        if ch.path in {"index.md", "log.md", "policies/index.md"}
+    ]
+    assert index_or_log
+    assert all(ch.coverage is None for ch in index_or_log)
+
+
+def test_incomplete_coverage_count_excludes_changes_with_no_coverage_metadata(
+    tmp_path: Path,
+) -> None:
+    bundle, _ = _seed_bundle(tmp_path)
+    # The seed commit predates any ingest -- unstructured, no coverage metadata.
+    report = build_report(bundle)
+    assert report.incomplete_coverage_count == 0
+
+
+def test_to_json_surfaces_coverage_and_incomplete_coverage_count(tmp_path: Path) -> None:
+    bundle, store = _seed_bundle(tmp_path)
+    result = ingest(
+        _policy_update_source(tmp_path),
+        bundle,
+        asof=_ASOF,
+        source_authority=10,
+        git_store=store,
+        branch="ingest/coverage-json",
+        coverage=SourceCoverage(kind=CoverageKind.SAMPLED, observed_item_count=5),
+    )
+    assert result.committed is True
+
+    payload = to_json(build_report(bundle))
+    assert payload["summary"]["incomplete_coverage_count"] == 1
+    ingest_commit = next(c for c in payload["commits"] if c["is_ingest"])
+    evidenced = [ch for ch in ingest_commit["changes"] if ch["coverage"] is not None]
+    assert evidenced
+    assert evidenced[0]["coverage"] == "sampled"
+    assert evidenced[0]["coverage_truncated"] is False
+
+
+def test_to_markdown_surfaces_non_complete_coverage_and_the_summary_count(
+    tmp_path: Path,
+) -> None:
+    bundle, store = _seed_bundle(tmp_path)
+    result = ingest(
+        _policy_update_source(tmp_path),
+        bundle,
+        asof=_ASOF,
+        source_authority=10,
+        git_store=store,
+        branch="ingest/coverage-md",
+        coverage=SourceCoverage(kind=CoverageKind.CURSOR_INCREMENTAL, cursor_after="c-1"),
+    )
+    assert result.committed is True
+
+    document = to_markdown(build_report(bundle))
+    assert "coverage=cursor_incremental" in document
+    assert "- incomplete_coverage: 1" in document

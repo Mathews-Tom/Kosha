@@ -5,7 +5,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from kosha.evidence import EvidenceStore, RunStatus, hash_evidence_text
+from kosha.evidence import (
+    CoverageKind,
+    EvidenceStore,
+    RunStatus,
+    SourceCoverage,
+    hash_evidence_text,
+)
 from kosha.ingest.guardrails import EvidenceRun, bind_evidence, persist_evidence_run
 from kosha.model import RawDoc, Source, SourceKind
 
@@ -150,3 +156,134 @@ def test_persist_evidence_run_is_a_noop_for_a_rejected_run(tmp_path: Path) -> No
     persist_evidence_run(store, run)
 
     assert not store.root.exists()
+
+
+# --- coverage: honest by default, explicit when supplied ------------------------
+
+
+def test_bind_evidence_without_an_explicit_coverage_defaults_to_unknown() -> None:
+    # bind_evidence never infers "complete" on its own -- only the caller
+    # knows whether a traversal, response, or bounded fetch was exhaustive.
+    _, run = _bind([_raw("clean text")])
+    assert run is not None
+    assert run.run.coverage.kind is CoverageKind.UNKNOWN
+
+
+def test_bind_evidence_threads_an_explicit_coverage_onto_the_run() -> None:
+    coverage = SourceCoverage(kind=CoverageKind.COMPLETE, scope="one fetched response body")
+    _docs, run = bind_evidence(
+        [_raw("clean text")],
+        run_id="run-1",
+        bundle_identity="b" * 64,
+        source_instance_id="src",
+        started_at=_ASOF,
+        completed_at=_ASOF,
+        coverage=coverage,
+    )
+    assert run is not None
+    assert run.run.coverage == coverage
+
+
+def test_bind_evidence_threads_a_windowed_coverage_with_explicit_bounds() -> None:
+    coverage = SourceCoverage(
+        kind=CoverageKind.WINDOWED,
+        scope="changelog feed, last 24h",
+        requested_window_start=datetime(2026, 6, 27, tzinfo=UTC),
+        requested_window_end=_ASOF,
+        observed_window_start=datetime(2026, 6, 27, tzinfo=UTC),
+        observed_window_end=_ASOF,
+    )
+    _, run = bind_evidence(
+        [_raw("clean text")],
+        run_id="run-1",
+        bundle_identity="b" * 64,
+        source_instance_id="src",
+        started_at=_ASOF,
+        completed_at=_ASOF,
+        coverage=coverage,
+    )
+    assert run is not None
+    assert run.run.coverage.kind is CoverageKind.WINDOWED
+    assert run.run.coverage.observed_window_end == _ASOF
+
+
+def test_bind_evidence_threads_a_truncated_best_effort_coverage_with_a_warning() -> None:
+    coverage = SourceCoverage(
+        kind=CoverageKind.BEST_EFFORT,
+        truncated=True,
+        warnings=("stopped after the configured byte cap; more content may remain",),
+    )
+    _, run = bind_evidence(
+        [_raw("clean text")],
+        run_id="run-1",
+        bundle_identity="b" * 64,
+        source_instance_id="src",
+        started_at=_ASOF,
+        completed_at=_ASOF,
+        coverage=coverage,
+    )
+    assert run is not None
+    assert run.run.coverage.truncated is True
+    assert "AKIA" not in run.run.coverage.warnings[0]
+    assert "byte cap" in run.run.coverage.warnings[0]
+
+
+def test_bind_evidence_threads_a_permission_limited_cursor_incremental_coverage() -> None:
+    coverage = SourceCoverage(
+        kind=CoverageKind.CURSOR_INCREMENTAL,
+        permission_limited=True,
+        cursor_before="cursor-0",
+        cursor_after="cursor-1",
+        warnings=("2 of 8 items were skipped: insufficient read permission",),
+    )
+    _, run = bind_evidence(
+        [_raw("clean text")],
+        run_id="run-1",
+        bundle_identity="b" * 64,
+        source_instance_id="src",
+        started_at=_ASOF,
+        completed_at=_ASOF,
+        coverage=coverage,
+    )
+    assert run is not None
+    assert run.run.coverage.permission_limited is True
+    assert run.run.coverage.cursor_after == "cursor-1"
+
+
+def test_a_rejected_run_still_carries_whatever_coverage_the_caller_supplied() -> None:
+    # Coverage describes the source-run attempt, independent of whether any
+    # document survived the secret scan.
+    coverage = SourceCoverage(kind=CoverageKind.SAMPLED, observed_item_count=0)
+    _, run = bind_evidence(
+        [_raw(_SECRET_TEXT)],
+        run_id="run-1",
+        bundle_identity="b" * 64,
+        source_instance_id="src",
+        started_at=_ASOF,
+        completed_at=_ASOF,
+        coverage=coverage,
+    )
+    assert run is not None
+    assert run.run.status is RunStatus.REJECTED
+    assert run.run.coverage.kind is CoverageKind.SAMPLED
+
+
+def test_persist_evidence_run_preserves_coverage_through_the_stored_manifest(
+    tmp_path: Path,
+) -> None:
+    coverage = SourceCoverage(kind=CoverageKind.COMPLETE, scope="one local file snapshot")
+    _docs, run = bind_evidence(
+        [_raw("durable text")],
+        run_id="run-1",
+        bundle_identity="b" * 64,
+        source_instance_id="src",
+        started_at=_ASOF,
+        completed_at=_ASOF,
+        coverage=coverage,
+    )
+    assert run is not None
+    store = EvidenceStore(tmp_path / "vault")
+    persist_evidence_run(store, run)
+
+    loaded = store.read_run("run-1")
+    assert loaded.coverage == coverage
