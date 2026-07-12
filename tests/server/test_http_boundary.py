@@ -56,19 +56,16 @@ def test_get_bundles_lists_only_the_authorized_bundle(
     }
 
 
-def test_get_events_reports_the_ready_event_with_authorized_bundles_only(
+def test_get_activations_is_a_one_shot_json_endpoint_scoped_to_authorized_bundles(
     registry: BundleRegistry, start_server: StartServer
 ) -> None:
     server: RunningServer = start_server(registry)
-    status, headers, body = _get(server.connection(), "/events")
+    status, headers, body = _get(server.connection(), "/activations")
 
     assert status == 200
-    assert "text/event-stream" in headers.get("Content-Type", "")
-    text = body.decode("utf-8")
-    event_line, _, rest = text.partition("\n")
-    assert event_line == "event: ready"
-    data_line = rest.strip().removeprefix("data: ")
-    assert json.loads(data_line) == {"bundles": ["northwind"]}
+    assert "application/json" in headers.get("Content-Type", "")
+    # Nothing has been refreshed yet -- no activations have occurred.
+    assert json.loads(body) == {"activations": []}
 
 
 def test_post_tools_answers_a_traversal_call_for_the_authorized_bundle(
