@@ -4,7 +4,7 @@ The `kosha` command is installed by `uv sync`; run it as `uv run kosha <command>
 
 <!-- kosha:sync:start cli-reference -->
 ```text
-kosha [--version] [-h] {doctor,validate,bench,calibrate,eval,ingest,serve,review-queue,export,evidence,source,recover,sync,release} ...
+kosha [--version] [-h] {doctor,validate,bench,calibrate,eval,ingest,serve,review-queue,export,evidence,source,gap,recover,sync,release} ...
 kosha doctor
 kosha doctor providers
 kosha validate
@@ -33,6 +33,13 @@ kosha source
 kosha source list
 kosha source run
 kosha source status
+kosha gap
+kosha gap scan
+kosha gap list
+kosha gap show
+kosha gap answer
+kosha gap invalidate
+kosha gap stale
 kosha recover
 kosha recover backups
 kosha recover restore
@@ -359,6 +366,33 @@ uv run kosha source status local-policies --config sources.json
 
 ---
 
+## `kosha gap`
+
+```text
+kosha gap scan <bundle> [--ref REF] [--json]
+kosha gap list <bundle> [--status open|answered|invalidated|stale] [--json]
+kosha gap show <bundle> <gap-id> [--json]
+kosha gap answer <bundle> <gap-id> --resolution REF [--json]
+kosha gap invalidate <bundle> <gap-id> --resolution REF [--json]
+kosha gap stale <bundle> <gap-id> [--json]
+```
+
+Deterministic, evidence-backed knowledge-gap ledger (DEVELOPMENT_PLAN.md M10). Tracks objectively unresolved knowledge-maintenance conditions -- missing/legacy evidence provenance, incomplete source coverage -- through an auditable `open -> answered|invalidated|stale` lifecycle. A gap is never invented by a model: every gap traces back to a deterministic signal `kosha audit export` already computes (`legacy_provenance_count`, `incomplete_coverage_count`), and a gap record never mutates a claim or the OKF bundle -- resolution only ever links to existing evidence (a digest) or a reviewed change (a commit SHA). The ledger lives privately at `~/.kosha/gaps/<bundle-identity>/gaps.json` (honoring `KOSHA_HOME`), wholly separate from the immutable evidence vault and connector cursor state.
+
+**Scan.** Walks the bundle's compliance history (the same `kosha audit export` machinery) for gap events, then merges them into the ledger. A repeated event for the same underlying commit/change updates one stable gap's `last_seen_at`/`seen_count` instead of creating a duplicate -- re-running `scan` against unchanged history is a no-op past the first run.
+
+**List / show.** List every recorded gap (optionally filtered by `--status`), or show one gap's full record: kind, deterministic reason code, lifecycle status, linked source-run ids, evidence digests, and affected concept paths.
+
+**Answer / invalidate / stale.** Explicit, human-driven lifecycle transitions. `answer`/`invalidate` require `--resolution` (an evidence digest or commit SHA); `stale` marks an aged-out gap without one. Every transition is terminal -- an already-answered, invalidated, or stale gap is retained for audit, never silently re-resolved or reopened; a later re-scan still records that the same underlying signal recurred (`seen_count`/`last_seen_at`) without changing its status.
+
+```bash
+uv run kosha gap scan bundles/northwind
+uv run kosha gap list bundles/northwind --status open
+uv run kosha gap answer bundles/northwind <gap-id> --resolution <evidence-sha256-or-commit-sha>
+```
+
+---
+
 ## `kosha recover`
 
 ```text
@@ -471,3 +505,5 @@ KOSHA_BUNDLE=bundles/northwind uv run kosha-mcp
 | `1` | `source run` — the connector's ingest attempt raised (recorded as a FAILED run; cursor unchanged) |
 | `2` | `source` — no subcommand, unknown `connector_id`/config entry, or not a bundle directory |
 | `1` | `source status`/`run` — malformed on-disk connector state |
+| `2` | `gap` — no subcommand, or not a bundle directory |
+| `1` | `gap show`/`answer`/`invalidate`/`stale` — unknown gap id, an already-resolved gap re-resolved, or ledger corruption |
