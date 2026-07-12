@@ -16,7 +16,7 @@ import json
 import os
 import sys
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -91,6 +91,16 @@ from kosha.evidence.model import SourceCoverage, SourceRun
 from kosha.evidence.paths import evidence_root
 from kosha.evidence.replay import ReplayError, render_replay_text, replay_run
 from kosha.evidence.verify import render_verification_text, verify_evidence
+from kosha.gaps import (
+    GapLedgerCorruptionError,
+    GapLedgerStore,
+    GapStatus,
+    KnowledgeGap,
+    UnknownGapError,
+    evidenced_categories,
+    gaps_from_compliance_report,
+    gaps_root,
+)
 from kosha.git_store import GitStore
 from kosha.ingest.url import UrlIngestError
 from kosha.ingest.watch import ScheduledIngest, SourcePolicy
@@ -761,6 +771,139 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the result as structured JSON instead of text.",
     )
+    gap_parser = subparsers.add_parser(
+        "gap",
+        help="Track deterministic evidence-backed knowledge gaps for a bundle.",
+    )
+    gap_subparsers = gap_parser.add_subparsers(dest="gap_command")
+    gap_scan_parser = gap_subparsers.add_parser(
+        "scan",
+        help="Scan a bundle's compliance history for gap events and merge them into the ledger.",
+    )
+    gap_scan_parser.add_argument(
+        "bundle",
+        type=Path,
+        help="Path to the OKF bundle directory (a Git repository).",
+    )
+    gap_scan_parser.add_argument(
+        "--ref",
+        type=str,
+        default="HEAD",
+        help="Git ref to walk for ingest history (default: HEAD).",
+    )
+    gap_scan_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
+    gap_list_parser = gap_subparsers.add_parser(
+        "list",
+        help="List every knowledge gap this bundle's ledger has ever recorded.",
+    )
+    gap_list_parser.add_argument(
+        "bundle",
+        type=Path,
+        help="Path to the OKF bundle directory (a Git repository).",
+    )
+    gap_list_parser.add_argument(
+        "--status",
+        choices=("open", "answered", "invalidated", "stale"),
+        default=None,
+        help="Filter to gaps with this lifecycle status (default: every status).",
+    )
+    gap_list_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
+    gap_show_parser = gap_subparsers.add_parser(
+        "show",
+        help="Show one stored knowledge gap's full record.",
+    )
+    gap_show_parser.add_argument(
+        "bundle",
+        type=Path,
+        help="Path to the OKF bundle directory (a Git repository).",
+    )
+    gap_show_parser.add_argument(
+        "gap_id",
+        type=str,
+        help="Gap id (see 'kosha gap list').",
+    )
+    gap_show_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
+    gap_answer_parser = gap_subparsers.add_parser(
+        "answer",
+        help="Answer an open gap, linking evidence or a reviewed change.",
+    )
+    gap_answer_parser.add_argument(
+        "bundle",
+        type=Path,
+        help="Path to the OKF bundle directory (a Git repository).",
+    )
+    gap_answer_parser.add_argument(
+        "gap_id",
+        type=str,
+        help="Gap id (see 'kosha gap list').",
+    )
+    gap_answer_parser.add_argument(
+        "--resolution",
+        type=str,
+        required=True,
+        help="Evidence digest or commit SHA the resolution links to.",
+    )
+    gap_answer_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
+    gap_invalidate_parser = gap_subparsers.add_parser(
+        "invalidate",
+        help="Invalidate an open gap (reviewed as not a real gap).",
+    )
+    gap_invalidate_parser.add_argument(
+        "bundle",
+        type=Path,
+        help="Path to the OKF bundle directory (a Git repository).",
+    )
+    gap_invalidate_parser.add_argument(
+        "gap_id",
+        type=str,
+        help="Gap id (see 'kosha gap list').",
+    )
+    gap_invalidate_parser.add_argument(
+        "--resolution",
+        type=str,
+        required=True,
+        help="Reviewer's reference for why this gap is not real.",
+    )
+    gap_invalidate_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
+    gap_stale_parser = gap_subparsers.add_parser(
+        "stale",
+        help="Mark an open gap stale (aged out without resolution).",
+    )
+    gap_stale_parser.add_argument(
+        "bundle",
+        type=Path,
+        help="Path to the OKF bundle directory (a Git repository).",
+    )
+    gap_stale_parser.add_argument(
+        "gap_id",
+        type=str,
+        help="Gap id (see 'kosha gap list').",
+    )
+    gap_stale_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
     recover_parser = subparsers.add_parser(
         "recover",
         help="Backup-tag-based recovery: list backups, restore, or reindex.",
@@ -950,6 +1093,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_evidence(args)
     if args.command == "source":
         return _run_source(args)
+    if args.command == "gap":
+        return _run_gap(args)
     if args.command == "calibrate":
         return _run_calibrate(args)
     if args.command == "sync":
@@ -1666,6 +1811,175 @@ def _run_source_run(args: argparse.Namespace) -> int:
     else:
         print(f"{report.instance_id}: {report.outcome.value}: {report.message}")
     return 1 if report.outcome is SourceRunOutcome.FAILED else 0
+
+
+def _run_gap(args: argparse.Namespace) -> int:
+    """Run ``kosha gap`` subcommands."""
+    if args.gap_command == "scan":
+        return _run_gap_scan(args)
+    if args.gap_command == "list":
+        return _run_gap_list(args)
+    if args.gap_command == "show":
+        return _run_gap_show(args)
+    if args.gap_command == "answer":
+        return _run_gap_answer(args)
+    if args.gap_command == "invalidate":
+        return _run_gap_invalidate(args)
+    if args.gap_command == "stale":
+        return _run_gap_stale(args)
+    print(
+        "kosha: gap requires a subcommand: scan, list, show, answer, invalidate, stale",
+        file=sys.stderr,
+    )
+    return 2
+
+
+def _run_gap_scan(args: argparse.Namespace) -> int:
+    """Run ``kosha gap scan``: derive gap events from compliance history and merge them.
+
+    Deterministic: every event traces back to
+    :func:`~kosha.audit.export.build_report`'s already-computed evidence
+    provenance/coverage signals, never a free-form model question.
+    """
+    if not args.bundle.is_dir():
+        print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
+        return 2
+    report = build_report(args.bundle, ref=args.ref)
+    events = gaps_from_compliance_report(report, at=datetime.now(UTC))
+    store = GapLedgerStore(gaps_root(args.bundle))
+    try:
+        merged = store.merge_events(events)
+    except GapLedgerCorruptionError as exc:
+        print(f"kosha: gap ledger corruption: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(cli_json.dumps(cli_json.gap_scan_json(events, merged)))
+        return 0
+    categories = sorted(kind.value for kind in evidenced_categories(events))
+    print(f"scanned {len(events)} gap event(s); categories: {', '.join(categories) or '(none)'}")
+    print(f"ledger now holds {len(merged)} gap(s)")
+    return 0
+
+
+def _run_gap_list(args: argparse.Namespace) -> int:
+    """Run ``kosha gap list``: list every gap this bundle's ledger has recorded."""
+    if not args.bundle.is_dir():
+        print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
+        return 2
+    store = GapLedgerStore(gaps_root(args.bundle))
+    try:
+        gaps = store.load()
+    except GapLedgerCorruptionError as exc:
+        print(f"kosha: gap ledger corruption: {exc}", file=sys.stderr)
+        return 1
+    if args.status is not None:
+        status = GapStatus(args.status)
+        gaps = tuple(gap for gap in gaps if gap.status is status)
+    if args.json:
+        print(cli_json.dumps(cli_json.gap_list_json(gaps)))
+        return 0
+    if not gaps:
+        print(f"no knowledge gaps recorded for {args.bundle}")
+        return 0
+    for gap in gaps:
+        print(f"{gap.gap_id}\t{gap.kind.value}\t{gap.status.value}\t{gap.reason_code.value}")
+    return 0
+
+
+def _run_gap_show(args: argparse.Namespace) -> int:
+    """Run ``kosha gap show``: show one stored gap's full record."""
+    if not args.bundle.is_dir():
+        print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
+        return 2
+    store = GapLedgerStore(gaps_root(args.bundle))
+    try:
+        gaps = {gap.gap_id: gap for gap in store.load()}
+    except GapLedgerCorruptionError as exc:
+        print(f"kosha: gap ledger corruption: {exc}", file=sys.stderr)
+        return 1
+    gap = gaps.get(args.gap_id)
+    if gap is None:
+        print(f"kosha: no such gap: {args.gap_id}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(cli_json.dumps(cli_json.gap_show_json(gap)))
+        return 0
+    print(_render_gap_text(gap))
+    return 0
+
+
+def _render_gap_text(gap: KnowledgeGap) -> str:
+    resolution = gap.resolution_reference or "(none)"
+    lines = [
+        f"Knowledge gap {gap.gap_id}",
+        f"  kind:                 {gap.kind.value}",
+        f"  reason_code:          {gap.reason_code.value}",
+        f"  status:               {gap.status.value}",
+        f"  opened_at:            {gap.opened_at.isoformat()}",
+        f"  last_seen_at:         {gap.last_seen_at.isoformat()}",
+        f"  seen_count:           {gap.seen_count}",
+        f"  owner:                {gap.owner or '(none recorded)'}",
+        f"  resolution_reference: {resolution}",
+    ]
+    if gap.source_run_ids:
+        lines.append("  source_run_ids:")
+        lines.extend(f"    - {run_id}" for run_id in gap.source_run_ids)
+    if gap.evidence_sha256:
+        lines.append("  evidence_sha256:")
+        lines.extend(f"    - {digest}" for digest in gap.evidence_sha256)
+    if gap.affected_concept_ids:
+        lines.append("  affected_concept_ids:")
+        lines.extend(f"    - {concept_id}" for concept_id in gap.affected_concept_ids)
+    return "\n".join(lines)
+
+
+def _run_gap_answer(args: argparse.Namespace) -> int:
+    """Run ``kosha gap answer``: transition an open gap to answered."""
+    return _run_gap_transition(
+        args,
+        lambda store: store.answer(
+            args.gap_id, resolution_reference=args.resolution, at=datetime.now(UTC)
+        ),
+    )
+
+
+def _run_gap_invalidate(args: argparse.Namespace) -> int:
+    """Run ``kosha gap invalidate``: transition an open gap to invalidated."""
+    return _run_gap_transition(
+        args,
+        lambda store: store.invalidate(
+            args.gap_id, resolution_reference=args.resolution, at=datetime.now(UTC)
+        ),
+    )
+
+
+def _run_gap_stale(args: argparse.Namespace) -> int:
+    """Run ``kosha gap stale``: transition an open gap to stale."""
+    return _run_gap_transition(
+        args, lambda store: store.mark_stale(args.gap_id, at=datetime.now(UTC))
+    )
+
+
+def _run_gap_transition(
+    args: argparse.Namespace, apply: Callable[[GapLedgerStore], KnowledgeGap]
+) -> int:
+    if not args.bundle.is_dir():
+        print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
+        return 2
+    store = GapLedgerStore(gaps_root(args.bundle))
+    try:
+        gap = apply(store)
+    except UnknownGapError:
+        print(f"kosha: no such gap: {args.gap_id}", file=sys.stderr)
+        return 1
+    except (GapLedgerCorruptionError, ValueError) as exc:
+        print(f"kosha: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(cli_json.dumps(cli_json.gap_transition_json(gap)))
+        return 0
+    print(f"{gap.gap_id}: {gap.status.value}")
+    return 0
 
 
 
