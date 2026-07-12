@@ -46,7 +46,14 @@ def test_get_bundles_lists_only_the_authorized_bundle(
 
     assert status == 200
     assert "application/json" in headers.get("Content-Type", "")
-    assert json.loads(body) == {"bundles": ["northwind"]}
+    assert json.loads(body) == {
+        "bundles": [
+            {
+                "bundle_id": "northwind",
+                "revision": registry.active_registration("northwind").revision,
+            }
+        ]
+    }
 
 
 def test_get_events_reports_the_ready_event_with_authorized_bundles_only(
