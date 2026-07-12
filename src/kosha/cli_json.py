@@ -17,7 +17,7 @@ existing surface already does.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,7 @@ from kosha.bench import (
 )
 from kosha.bench.acceptance import AcceptanceReport
 from kosha.bench.realworld import RealworldReport
+from kosha.connectors import ConnectorState, SourceInstance, SourceRunReport
 from kosha.eval import (
     ContradictEvalReport,
     DedupEvalReport,
@@ -518,4 +519,49 @@ def evidence_replay_json(report: ReplayReport) -> dict[str, Any]:
             "added": list(report.added_paths),
             "removed": list(report.removed_paths),
         },
+    }
+
+
+def source_list_json(instances: Sequence[SourceInstance]) -> dict[str, Any]:
+    """Structured ``kosha source list --json`` result."""
+    return {
+        "instances": [
+            {
+                "instance_id": instance.instance_id,
+                "connector_id": instance.connector_id,
+                "enabled": instance.enabled,
+                "schedule": instance.schedule,
+            }
+            for instance in instances
+        ]
+    }
+
+
+def source_status_json(instance: SourceInstance, state: ConnectorState | None) -> dict[str, Any]:
+    """Structured ``kosha source status --json`` result.
+
+    ``state`` is ``None`` when the instance has never run -- reported
+    honestly as ``null`` rather than a fabricated empty state.
+    """
+    return {
+        "instance_id": instance.instance_id,
+        "connector_id": instance.connector_id,
+        "enabled": instance.enabled,
+        "schedule": instance.schedule,
+        "state": state.model_dump(mode="json") if state is not None else None,
+    }
+
+
+def source_run_json(report: SourceRunReport) -> dict[str, Any]:
+    """Structured ``kosha source run --json`` result."""
+    result = report.ingest_result
+    return {
+        "instance_id": report.instance_id,
+        "run_id": report.run_id,
+        "outcome": report.outcome.value,
+        "message": report.message,
+        "committed": result.committed if result is not None else False,
+        "commit_sha": result.commit_sha if result is not None else None,
+        "branch": result.branch if result is not None else None,
+        "state": report.state.model_dump(mode="json"),
     }

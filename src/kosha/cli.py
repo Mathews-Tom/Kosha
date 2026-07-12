@@ -59,6 +59,19 @@ from kosha.bench.realworld import (
     render_realworld_report,
     run_realworld,
 )
+from kosha.connectors import (
+    ConnectorState,
+    ConnectorStateCorruptionError,
+    ConnectorStateStore,
+    SourceConfigError,
+    SourceInstance,
+    SourceRunOutcome,
+    UnknownConnectorError,
+    connectors_root,
+    load_source_instance,
+    load_source_instances,
+    run_source_instance,
+)
 from kosha.contradiction import LexicalContradictionJudge
 from kosha.dedup import DEFAULT_THRESHOLDS, LexicalAdjudicator
 from kosha.eval import (
@@ -663,6 +676,91 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print the result as structured JSON instead of text.",
     )
+    source_parser = subparsers.add_parser(
+        "source",
+        help="List, run, and inspect configured source instances and their cursor state.",
+    )
+    source_subparsers = source_parser.add_subparsers(dest="source_command")
+    source_list_parser = source_subparsers.add_parser(
+        "list",
+        help="List configured source instances from a source-instance config file.",
+    )
+    source_list_parser.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help="Path to a source-instance config JSON file (array of instances).",
+    )
+    source_list_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
+    source_run_parser = source_subparsers.add_parser(
+        "run",
+        help="Run one configured source instance once behind the plan->approve->commit gate.",
+    )
+    source_run_parser.add_argument(
+        "instance_id",
+        type=str,
+        help="Source instance id to run (see 'kosha source list').",
+    )
+    source_run_parser.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help="Path to a source-instance config JSON file (array of instances).",
+    )
+    source_run_parser.add_argument(
+        "--bundle",
+        type=Path,
+        default=_DEFAULT_BUNDLE,
+        help="Target OKF bundle directory (default: bundles/northwind).",
+    )
+    source_run_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build and print the plan without writing, committing, or advancing the cursor.",
+    )
+    source_run_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Approve the whole plan non-interactively (explicit human approval).",
+    )
+    source_run_parser.add_argument(
+        "--reviewer",
+        type=str,
+        default=None,
+        help=(
+            "Approving reviewer's identity (e.g. 'Jane Doe <jane@example.com>'), "
+            "recorded as a Reviewed-by trailer on the commit."
+        ),
+    )
+    source_run_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
+    source_status_parser = source_subparsers.add_parser(
+        "status",
+        help="Show one source instance's configuration and durable cursor state.",
+    )
+    source_status_parser.add_argument(
+        "instance_id",
+        type=str,
+        help="Source instance id to inspect (see 'kosha source list').",
+    )
+    source_status_parser.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help="Path to a source-instance config JSON file (array of instances).",
+    )
+    source_status_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
     recover_parser = subparsers.add_parser(
         "recover",
         help="Backup-tag-based recovery: list backups, restore, or reindex.",
@@ -850,6 +948,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_export(args)
     if args.command == "evidence":
         return _run_evidence(args)
+    if args.command == "source":
+        return _run_source(args)
     if args.command == "calibrate":
         return _run_calibrate(args)
     if args.command == "sync":
@@ -1448,6 +1548,125 @@ def _run_evidence_replay(args: argparse.Namespace) -> int:
         return 0
     print(render_replay_text(report))
     return 0
+
+def _run_source(args: argparse.Namespace) -> int:
+    """Run ``kosha source`` subcommands."""
+    if args.source_command == "list":
+        return _run_source_list(args)
+    if args.source_command == "run":
+        return _run_source_run(args)
+    if args.source_command == "status":
+        return _run_source_status(args)
+    print(
+        "kosha: source requires a subcommand: list, run, status",
+        file=sys.stderr,
+    )
+    return 2
+
+
+def _run_source_list(args: argparse.Namespace) -> int:
+    """Run ``kosha source list``: list every configured source instance."""
+    try:
+        instances = load_source_instances(args.config)
+    except (SourceConfigError, UnknownConnectorError) as exc:
+        print(f"kosha: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(cli_json.dumps(cli_json.source_list_json(instances)))
+        return 0
+    if not instances:
+        print(f"no source instances configured in {args.config}")
+        return 0
+    for instance in instances:
+        status = "enabled" if instance.enabled else "disabled"
+        print(f"{instance.instance_id}\t{instance.connector_id}\t{status}")
+    return 0
+
+
+def _run_source_status(args: argparse.Namespace) -> int:
+    """Run ``kosha source status``: show one instance's config and durable cursor state."""
+    try:
+        instance = load_source_instance(args.config, args.instance_id)
+    except (SourceConfigError, UnknownConnectorError) as exc:
+        print(f"kosha: {exc}", file=sys.stderr)
+        return 2
+    try:
+        state = ConnectorStateStore(connectors_root()).load(instance.instance_id)
+    except ConnectorStateCorruptionError as exc:
+        print(f"kosha: connector state corruption: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(cli_json.dumps(cli_json.source_status_json(instance, state)))
+        return 0
+    print(_render_source_status_text(instance, state))
+    return 0
+
+
+def _render_source_status_text(instance: SourceInstance, state: ConnectorState | None) -> str:
+    lines = [
+        f"Source instance {instance.instance_id}",
+        f"  connector_id: {instance.connector_id}",
+        f"  enabled:      {instance.enabled}",
+        f"  schedule:     {instance.schedule or '(none)'}",
+    ]
+    if state is None:
+        lines.append("  state:        never run")
+        return "\n".join(lines)
+    lines.append(f"  cursor:              {state.cursor}")
+    lines.append(f"  last_success_run_id: {state.last_success_run_id}")
+    lines.append(f"  last_success_at:     {_iso_or_none(state.last_success_at)}")
+    lines.append(f"  recent_runs ({len(state.recent_runs)}):")
+    for run in state.recent_runs:
+        lines.append(f"    - {run.run_id}\t{run.status.value}\t{run.completed_at.isoformat()}")
+        if run.message:
+            lines.append(f"      {run.message}")
+    return "\n".join(lines)
+
+
+def _run_source_run(args: argparse.Namespace) -> int:
+    """Run ``kosha source run``: run one configured source instance once.
+
+    Malformed on-disk connector state fails loud (exit 1) rather than
+    silently resetting to a fresh cursor. A raised connector exception is
+    recorded as a FAILED run and also exits 1; a clean run that did not
+    commit (rejected approval, empty plan, or ``--dry-run``) is a normal
+    exit 0, matching ``kosha ingest``'s own "not approved: nothing
+    committed" convention.
+    """
+    try:
+        instance = load_source_instance(args.config, args.instance_id)
+    except (SourceConfigError, UnknownConnectorError) as exc:
+        print(f"kosha: {exc}", file=sys.stderr)
+        return 2
+    if not args.bundle.is_dir():
+        print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
+        return 2
+    try:
+        reviewer = normalize_reviewer(args.reviewer)
+    except ValueError as exc:
+        print(f"kosha: invalid --reviewer: {exc}", file=sys.stderr)
+        return 2
+    reader = input if sys.stdin.isatty() and not args.yes else None
+    try:
+        report = run_source_instance(
+            instance,
+            bundle_root=args.bundle,
+            state_store=ConnectorStateStore(connectors_root()),
+            asof=datetime.now(UTC),
+            dry_run=args.dry_run,
+            assume_yes=args.yes,
+            reader=reader,
+            reviewer=reviewer,
+        )
+    except ConnectorStateCorruptionError as exc:
+        print(f"kosha: connector state corruption: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(cli_json.dumps(cli_json.source_run_json(report)))
+    else:
+        print(f"{report.instance_id}: {report.outcome.value}: {report.message}")
+    return 1 if report.outcome is SourceRunOutcome.FAILED else 0
+
 
 
 def _run_validate(bundle: Path, json_output: bool = False) -> int:
