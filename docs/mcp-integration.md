@@ -53,6 +53,41 @@ sequenceDiagram
 
 `list_index` is available for cold navigation and audit when the agent prefers structured traversal over the jump.
 
+## Resources
+
+Beyond the tools above, the registry-mode server also publishes bundle state as
+versioned, subscribable MCP resources — the same ACL and revision the tools use,
+addressed by URI instead of a tool call:
+
+<!-- kosha:sync:start mcp-resource-table -->
+| Resource URI | Content |
+|---|---|
+| `kosha://bundles` | The authorized bundle list, with each bundle's active revision |
+| `kosha://bundles/{bundle_id}` | One bundle's id and active revision |
+| `kosha://bundles/{bundle_id}/index/{scope}` | A bundle directory's direct contents, at the active revision |
+| `kosha://bundles/{bundle_id}/concepts/{concept_id}` | A concept's body, filtered to claims in force -- same as load_concept(asof=None) |
+<!-- kosha:sync:end -->
+
+`{bundle_id}`, `{scope}`, and `{concept_id}` are opaque, percent-encoded path
+segments (a scope containing `/` round-trips as one encoded segment); the
+bundle-root scope (`""`) has no resource form — list it through the
+`list_index` tool instead. Every resource read enforces the same bundle-level
+ACL as the equivalent tool call, and does so **before** disclosing whether the
+bundle exists at all: an unknown `bundle_id` and a bundle the caller's
+clearance does not cover fail identically.
+
+Clients that subscribe (`resources/subscribe`) to a bundle-scoped resource
+receive `notifications/resources/updated` strictly after that bundle's next
+successful atomic activation (system_design §15) — never before, never for a
+no-op or failed refresh, and never for a bundle the subscriber cannot see. The
+notification carries only the resource URI, never a body.
+
+Every tool — including `list_bundles` — and every resource template declares
+`readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, and
+`openWorldHint: false`: nothing here ever mutates the bundle, repeating a call
+has no additional effect, and no tool or resource reaches outside the
+addressed bundle.
+
 ## Connecting a client
 
 Any MCP client that can launch a stdio server works. Register `kosha-mcp` as the command. Example for a Claude Desktop-style `mcpServers` config:

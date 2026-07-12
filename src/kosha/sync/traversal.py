@@ -7,6 +7,7 @@ import importlib.util
 from dataclasses import dataclass
 from pathlib import Path
 
+from kosha.mcp import resources as mcp_resources
 from kosha.mcp.fallback import render_consumer_skill, render_fallback_fragment
 from kosha.sync.check import SyncMismatch
 from kosha.sync.writer import GeneratedSectionWriter
@@ -25,6 +26,14 @@ class McpTool:
     description: str
 
 
+@dataclass(frozen=True)
+class McpResource:
+    """One FastMCP resource (or resource template) registered by ``kosha.mcp.server``."""
+
+    uri: str
+    name: str
+    description: str
+
 def check_traversal_surfaces(repo_root: Path) -> tuple[SyncMismatch, ...]:
     """Return mismatches for MCP docs and fallback traversal artifacts."""
 
@@ -35,20 +44,21 @@ def check_traversal_surfaces(repo_root: Path) -> tuple[SyncMismatch, ...]:
 
 
 def check_mcp_integration_doc(repo_root: Path) -> tuple[SyncMismatch, ...]:
-    """Check that MCP docs list the live registry-server tool signatures."""
+    """Check that MCP docs list the live registry-server tool and resource surfaces."""
 
     path = repo_root / MCP_DOC_PATH
     if not path.is_file():
         return (_missing_file("mcp-integration", path),)
     text = path.read_text(encoding="utf-8")
     missing = tuple(row for row in render_mcp_tool_rows() if row not in text)
+    missing += tuple(row for row in render_mcp_resource_rows() if row not in text)
     if not missing:
         return ()
     return (
         SyncMismatch(
             surface="mcp-integration",
             path=path,
-            message="MCP integration tool table does not match live server tools",
+            message="MCP integration table does not match live server tools/resources",
             details=tuple(f"missing row: {row}" for row in missing),
         ),
     )
@@ -80,9 +90,7 @@ def check_fallback_artifacts(repo_root: Path) -> tuple[SyncMismatch, ...]:
     return tuple(mismatches)
 
 
-def live_mcp_tools() -> tuple[McpTool, ...]:
-    """Return the FastMCP registry-server tools parsed from the server source."""
-
+def _registry_builder() -> ast.FunctionDef:
     spec = importlib.util.find_spec("kosha.mcp.server")
     if spec is None or spec.origin is None:
         raise RuntimeError("cannot locate kosha.mcp.server source")
@@ -90,7 +98,13 @@ def live_mcp_tools() -> tuple[McpTool, ...]:
     if not source_path.is_file():
         raise RuntimeError("cannot locate kosha.mcp.server source")
     module = ast.parse(source_path.read_text(encoding="utf-8"))
-    builder = _find_function(module, "_build_registry_server")
+    return _find_function(module, "build_registry_server_with_subscriptions")
+
+
+def live_mcp_tools() -> tuple[McpTool, ...]:
+    """Return the FastMCP registry-server tools parsed from the server source."""
+
+    builder = _registry_builder()
     tools = [
         node
         for node in builder.body
@@ -108,6 +122,26 @@ def render_mcp_tool_rows() -> tuple[str, ...]:
     )
 
 
+def live_mcp_resources() -> tuple[McpResource, ...]:
+    """Return the FastMCP registry-server resources parsed from the server source."""
+
+    builder = _registry_builder()
+    nodes = [
+        node
+        for node in builder.body
+        if isinstance(node, ast.FunctionDef) and _is_resource(node)
+    ]
+    return tuple(_resource_from_function(node) for node in nodes)
+
+
+def render_mcp_resource_rows() -> tuple[str, ...]:
+    """Render docs table rows for the live registry-server resource surface."""
+
+    return tuple(
+        f"| `{resource.uri}` | {resource.description} |" for resource in live_mcp_resources()
+    )
+
+
 def _tool_from_function(node: ast.FunctionDef) -> McpTool:
     docstring = ast.get_docstring(node)
     description = (
@@ -118,6 +152,31 @@ def _tool_from_function(node: ast.FunctionDef) -> McpTool:
         signature=_signature(node.args),
         description=description,
     )
+
+
+_RESOURCE_URI_BY_CONSTANT = {
+    "BUNDLES_LIST_URI": mcp_resources.BUNDLES_LIST_URI,
+    "BUNDLE_URI_TEMPLATE": mcp_resources.BUNDLE_URI_TEMPLATE,
+    "INDEX_URI_TEMPLATE": mcp_resources.INDEX_URI_TEMPLATE,
+    "CONCEPT_URI_TEMPLATE": mcp_resources.CONCEPT_URI_TEMPLATE,
+}
+
+
+def _resource_from_function(node: ast.FunctionDef) -> McpResource:
+    decorator = next(d for d in node.decorator_list if _decorator_attr(d) == "resource")
+    assert isinstance(decorator, ast.Call)  # guaranteed by _is_resource's filter
+    uri_arg = decorator.args[0]
+    if isinstance(uri_arg, ast.Constant) and isinstance(uri_arg.value, str):
+        uri = uri_arg.value
+    elif isinstance(uri_arg, ast.Name) and uri_arg.id in _RESOURCE_URI_BY_CONSTANT:
+        uri = _RESOURCE_URI_BY_CONSTANT[uri_arg.id]
+    else:
+        raise RuntimeError(f"cannot resolve resource URI for {node.name}")
+    docstring = ast.get_docstring(node)
+    description = (
+        docstring.splitlines()[0].rstrip(".") if docstring else "No description"
+    )
+    return McpResource(uri=uri, name=node.name, description=description)
 
 
 def _signature(args: ast.arguments) -> str:
@@ -159,13 +218,18 @@ def _find_function(module: ast.Module, name: str) -> ast.FunctionDef:
     raise RuntimeError(f"cannot find {name} in kosha.mcp.server")
 
 
+def _decorator_attr(decorator: ast.expr) -> str | None:
+    if isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute):
+        return decorator.func.attr
+    return None
+
+
 def _is_tool(node: ast.FunctionDef) -> bool:
-    return any(
-        isinstance(decorator, ast.Call)
-        and isinstance(decorator.func, ast.Attribute)
-        and decorator.func.attr == "tool"
-        for decorator in node.decorator_list
-    )
+    return any(_decorator_attr(decorator) == "tool" for decorator in node.decorator_list)
+
+
+def _is_resource(node: ast.FunctionDef) -> bool:
+    return any(_decorator_attr(decorator) == "resource" for decorator in node.decorator_list)
 
 
 def _missing_file(surface: str, path: Path) -> SyncMismatch:
@@ -178,19 +242,25 @@ def write_mcp_integration_doc(repo_root: Path) -> None:
     path = repo_root / MCP_DOC_PATH
     if not path.is_file():
         return
-        
+
     text = path.read_text(encoding="utf-8")
-    writer = GeneratedSectionWriter("mcp-tool-table")
-    
-    rows = render_mcp_tool_rows()
-    lines = [
+    tool_writer = GeneratedSectionWriter("mcp-tool-table")
+    tool_lines = [
         "| Tool | Signature | Returns |",
         "|---|---|---|",
-        *rows
+        *render_mcp_tool_rows(),
     ]
-    
-    new_text = writer.write_section(text, "\n".join(lines))
+    text = tool_writer.write_section(text, "\n".join(tool_lines))
+
+    resource_writer = GeneratedSectionWriter("mcp-resource-table")
+    resource_lines = [
+        "| Resource URI | Content |",
+        "|---|---|",
+        *render_mcp_resource_rows(),
+    ]
+    new_text = resource_writer.write_section(text, "\n".join(resource_lines))
     path.write_text(new_text, encoding="utf-8")
+
 
 def write_fallback_artifacts(repo_root: Path) -> None:
     expected = {
