@@ -7,14 +7,22 @@ commit :mod:`kosha.pipeline.run` writes. That commit message is therefore the
 durable audit record this module reads back: :func:`kosha.pipeline.run._change_line`
 stamps each changed file's lane, impact, confidence, and contradiction state
 into the message body, and the existing ``Reviewed-by`` trailer already carries
-the approving identity. Walking every commit reachable from a ref (default
-``HEAD``) reconstructs the whole ingest history without adding any new on-disk
-artifact — Git remains the only system of record (system_design §6).
+the approving identity. A ``Source-Run`` trailer plus one sorted
+``Evidence-SHA256`` trailer per referenced digest (DEVELOPMENT_PLAN.md M3)
+carries evidence lineage the same durable way: no assumption that an
+in-memory field survives a reload. Walking every commit reachable from a ref
+(default ``HEAD``) reconstructs the whole ingest history without adding any
+new on-disk artifact — Git remains the only system of record (system_design
+§6).
 
-The export defaults to metadata only: the parsed per-file provenance, never the
-file's content, and never the log/source body a bundle carries. Pass
-``include_source_text=True`` to additionally attach each changed file's
-committed content, so a leak of the export cannot happen by omission.
+The export defaults to metadata only: the parsed per-file provenance and
+evidence digests, never the file's content or the evidence body itself, and
+never the log/source body a bundle carries. Pass ``include_source_text=True``
+to additionally attach each changed file's committed content, so a leak of
+the export cannot happen by omission. A commit's evidence provenance is
+reported honestly: ``"verified"`` only when both trailers are present,
+``"legacy"`` for any other ingest commit (pre-M3 history, or a run that
+minted no evidence-bound claim) — never fabricated as verified.
 """
 
 from __future__ import annotations
@@ -35,6 +43,8 @@ from kosha.validate import Report, validate_bundle
 _INGEST_SUBJECT = re.compile(r"^feat\(kosha\): ingest (?P<source>.+)$")
 _CHANGE_LINE = re.compile(r"^- (?P<kind>create|update) (?P<path>\S+)(?: \[(?P<attrs>[^\]]*)\])?$")
 _REVIEWED_BY = re.compile(r"^Reviewed-by: (?P<reviewer>.+)$")
+_SOURCE_RUN = re.compile(r"^Source-Run: (?P<run_id>\S+)$")
+_EVIDENCE_SHA256 = re.compile(r"^Evidence-SHA256: (?P<digest>[0-9a-f]{64})$")
 
 
 @dataclass(frozen=True)
@@ -57,7 +67,13 @@ class ChangeRecord:
 
 @dataclass(frozen=True)
 class CommitRecord:
-    """One commit reachable from the export ref."""
+    """One commit reachable from the export ref.
+
+    ``source_run`` / ``evidence_sha256`` come from the M3 commit trailers;
+    both are absent on a commit that predates M3 or minted no evidence-bound
+    claim. Use :attr:`evidence_status` rather than testing these directly --
+    it is the one place "verified" is decided.
+    """
 
     sha: str
     date: datetime
@@ -66,6 +82,25 @@ class CommitRecord:
     reviewer: str | None
     is_ingest: bool
     changes: tuple[ChangeRecord, ...] = field(default_factory=tuple)
+    source_run: str | None = None
+    evidence_sha256: tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def evidence_status(self) -> str:
+        """Report this commit's evidence provenance honestly.
+
+        ``"verified"``: an ingest commit carrying both a ``Source-Run``
+        trailer and at least one ``Evidence-SHA256`` digest -- the M3
+        evidence-backed shape. ``"legacy"``: an ingest commit missing either
+        trailer (pre-M3 history, or a run that minted no evidence-bound
+        claim) -- never promoted to verified by inference. ``"n/a"``: not an
+        ingest commit at all.
+        """
+        if not self.is_ingest:
+            return "n/a"
+        if self.source_run is not None and self.evidence_sha256:
+            return "verified"
+        return "legacy"
 
 
 @dataclass(frozen=True)
@@ -102,6 +137,16 @@ class ComplianceReport:
             if commit.reviewer is not None and commit.reviewer not in seen:
                 seen.append(commit.reviewer)
         return tuple(seen)
+
+    @property
+    def verified_evidence_count(self) -> int:
+        """Ingest commits whose claims resolve to durable evidence."""
+        return sum(1 for c in self.commits if c.evidence_status == "verified")
+
+    @property
+    def legacy_provenance_count(self) -> int:
+        """Ingest commits with no verifiable evidence trailer."""
+        return sum(1 for c in self.commits if c.evidence_status == "legacy")
 
 
 def require_export_access(bundle_access: str | None, clearance: Iterable[str]) -> None:
@@ -145,14 +190,20 @@ def _parse_change_line(line: str) -> ChangeRecord | None:
 
 def _parse_commit_message(
     message: str,
-) -> tuple[str, str | None, str | None, tuple[ChangeRecord, ...]]:
-    """Return ``(subject, source, reviewer, changes)`` parsed from a full commit message."""
+) -> tuple[str, str | None, str | None, tuple[ChangeRecord, ...], str | None, tuple[str, ...]]:
+    """Return ``(subject, source, reviewer, changes, source_run, evidence_sha256)``.
+
+    All parsed from a full commit message; ``evidence_sha256`` preserves the
+    order the trailers appear in (``commit_plan`` already emits them sorted).
+    """
     lines = message.splitlines()
     subject = lines[0] if lines else ""
     subject_match = _INGEST_SUBJECT.match(subject)
     source = subject_match.group("source") if subject_match else None
     changes: list[ChangeRecord] = []
     reviewer: str | None = None
+    source_run: str | None = None
+    evidence_sha256: list[str] = []
     for line in lines[1:]:
         change = _parse_change_line(line)
         if change is not None:
@@ -161,7 +212,15 @@ def _parse_commit_message(
         reviewed = _REVIEWED_BY.match(line)
         if reviewed is not None:
             reviewer = reviewed.group("reviewer")
-    return subject, source, reviewer, tuple(changes)
+            continue
+        run_match = _SOURCE_RUN.match(line)
+        if run_match is not None:
+            source_run = run_match.group("run_id")
+            continue
+        digest_match = _EVIDENCE_SHA256.match(line)
+        if digest_match is not None:
+            evidence_sha256.append(digest_match.group("digest"))
+    return subject, source, reviewer, tuple(changes), source_run, tuple(evidence_sha256)
 
 
 def build_report(
@@ -183,7 +242,9 @@ def build_report(
     store = GitStore(bundle_root)
     commits: list[CommitRecord] = []
     for sha in store.revisions(ref):
-        subject, source, reviewer, changes = _parse_commit_message(store.commit_message(sha))
+        subject, source, reviewer, changes, source_run, evidence_sha256 = _parse_commit_message(
+            store.commit_message(sha)
+        )
         if include_source_text:
             changes = tuple(
                 replace(change, content=store.show(sha, change.path)) for change in changes
@@ -197,6 +258,8 @@ def build_report(
                 reviewer=reviewer,
                 is_ingest=source is not None,
                 changes=changes,
+                source_run=source_run,
+                evidence_sha256=evidence_sha256,
             )
         )
     okf_version, concept_count = _bundle_metadata(bundle_root)
@@ -258,6 +321,8 @@ def to_json(report: ComplianceReport) -> dict[str, Any]:
             "blocked_count": report.blocked_count,
             "contradiction_count": report.contradiction_count,
             "reviewers": list(report.reviewers),
+            "verified_evidence_count": report.verified_evidence_count,
+            "legacy_provenance_count": report.legacy_provenance_count,
         },
         "validation": {
             "ok": report.validation.ok,
@@ -281,6 +346,9 @@ def to_json(report: ComplianceReport) -> dict[str, Any]:
                 "source": commit.source,
                 "reviewer": commit.reviewer,
                 "is_ingest": commit.is_ingest,
+                "source_run": commit.source_run,
+                "evidence_sha256": list(commit.evidence_sha256),
+                "evidence_status": commit.evidence_status,
                 "changes": [_change_json(change) for change in commit.changes],
             }
             for commit in report.commits
@@ -308,6 +376,8 @@ def to_markdown(report: ComplianceReport) -> str:
         f"- lanes: auto={report.auto_count} blocked={report.blocked_count}",
         f"- contradictions: {report.contradiction_count}",
         f"- reviewers: {', '.join(report.reviewers) or '(none recorded)'}",
+        f"- evidence: verified={report.verified_evidence_count} "
+        f"legacy={report.legacy_provenance_count}",
         "",
         "## Commits",
         "",
@@ -316,6 +386,8 @@ def to_markdown(report: ComplianceReport) -> str:
         lines.append(f"### `{commit.sha[:8]}` — {commit.subject}")
         lines.append(f"- date: {commit.date.isoformat()}")
         lines.append(f"- reviewer: {commit.reviewer or '(none recorded)'}")
+        if commit.is_ingest:
+            lines.append(f"- evidence: {commit.evidence_status}")
         for change in commit.changes:
             detail = f"lane={change.lane or '?'} impact={change.impact or '?'}"
             if change.contradiction and change.contradiction != "none":
