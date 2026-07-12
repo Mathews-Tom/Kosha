@@ -5,12 +5,16 @@ the plan is shown as create/update lines plus the escalated conflicts a human mu
 judge. Rendering is deterministic — the plan is already ordered — and annotates
 each change with the provenance the autonomy router reads (confidence, impact, and
 whether a contradiction was resolved or escalated), so a reviewer sees *why* a
-change needs (or does not need) their attention.
+change needs (or does not need) their attention. A change whose evidence carries
+non-``complete`` coverage (DEVELOPMENT_PLAN.md M5) is annotated the same way, plus
+any structured coverage warning, so a reviewer never mistakes a bounded or
+incremental retrieval for an exhaustive one.
 """
 
 from __future__ import annotations
 
 from kosha.approve.autonomy import ChangeRouting
+from kosha.evidence.model import CoverageKind
 from kosha.plan import ChangePlan, ContradictionState, FileChange, Flag
 
 
@@ -46,6 +50,8 @@ def _annotations(change: FileChange) -> str:
     parts = [f"conf={change.confidence:.2f}", f"impact={change.impact.value}"]
     if change.contradiction is not ContradictionState.NONE:
         parts.append(f"contradiction={change.contradiction.value}")
+    if change.coverage is not None and change.coverage.kind is not CoverageKind.COMPLETE:
+        parts.append(f"coverage={change.coverage.kind.value}")
     return f"[{' '.join(parts)}]"
 
 
@@ -61,6 +67,8 @@ def render_change_item(change: FileChange, route: ChangeRouting | None = None) -
     if change.summary:
         lines.append(f"  summary: {change.summary}")
     lines.append(f"  {_annotations(change)}")
+    if change.coverage is not None:
+        lines.extend(f"  coverage warning: {warning}" for warning in change.coverage.warnings)
     if route is not None:
         lines.append(f"  lane={route.lane.label} ({route.reason})")
     return "\n".join(lines)

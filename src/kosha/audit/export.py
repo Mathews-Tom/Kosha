@@ -53,7 +53,9 @@ class ChangeRecord:
 
     ``lane``, ``impact``, ``confidence``, and ``contradiction`` are ``None`` when
     the commit predates the M7 enriched message format (e.g. a bootstrap ``chore:
-    seed`` commit) — absence is reported honestly rather than guessed.
+    seed`` commit) — absence is reported honestly rather than guessed. ``coverage``
+    is ``None`` under the same rule, plus for any change whose evidence carries no
+    coverage classification (DEVELOPMENT_PLAN.md M5).
     """
 
     path: str
@@ -62,6 +64,9 @@ class ChangeRecord:
     impact: str | None
     confidence: float | None
     contradiction: str | None
+    coverage: str | None = None
+    coverage_truncated: bool = False
+    coverage_permission_limited: bool = False
     content: str | None = None
 
 
@@ -148,6 +153,22 @@ class ComplianceReport:
         """Ingest commits with no verifiable evidence trailer."""
         return sum(1 for c in self.commits if c.evidence_status == "legacy")
 
+    @property
+    def incomplete_coverage_count(self) -> int:
+        """Changes whose evidence carries a non-``complete`` coverage classification.
+
+        Counts only a change with a recorded ``coverage`` value that is not
+        ``"complete"`` -- never a change with no coverage metadata at all, which
+        is reported separately (a legacy or coverage-less change is neither
+        complete nor incomplete; it is simply unclassified).
+        """
+        return sum(
+            1
+            for c in self.commits
+            for ch in c.changes
+            if ch.coverage is not None and ch.coverage != "complete"
+        )
+
 
 def require_export_access(bundle_access: str | None, clearance: Iterable[str]) -> None:
     """Raise :class:`~kosha.mcp.service.AccessDeniedError` unless cleared.
@@ -185,6 +206,9 @@ def _parse_change_line(line: str) -> ChangeRecord | None:
         impact=attrs.get("impact"),
         confidence=confidence,
         contradiction=attrs.get("contradiction"),
+        coverage=attrs.get("coverage"),
+        coverage_truncated=attrs.get("coverage_truncated") == "1",
+        coverage_permission_limited=attrs.get("coverage_permission_limited") == "1",
     )
 
 
@@ -300,6 +324,9 @@ def _change_json(change: ChangeRecord) -> dict[str, Any]:
         "impact": change.impact,
         "confidence": change.confidence,
         "contradiction": change.contradiction,
+        "coverage": change.coverage,
+        "coverage_truncated": change.coverage_truncated,
+        "coverage_permission_limited": change.coverage_permission_limited,
     }
     if change.content is not None:
         payload["content"] = change.content
@@ -323,6 +350,7 @@ def to_json(report: ComplianceReport) -> dict[str, Any]:
             "reviewers": list(report.reviewers),
             "verified_evidence_count": report.verified_evidence_count,
             "legacy_provenance_count": report.legacy_provenance_count,
+            "incomplete_coverage_count": report.incomplete_coverage_count,
         },
         "validation": {
             "ok": report.validation.ok,
@@ -378,6 +406,7 @@ def to_markdown(report: ComplianceReport) -> str:
         f"- reviewers: {', '.join(report.reviewers) or '(none recorded)'}",
         f"- evidence: verified={report.verified_evidence_count} "
         f"legacy={report.legacy_provenance_count}",
+        f"- incomplete_coverage: {report.incomplete_coverage_count}",
         "",
         "## Commits",
         "",
@@ -392,6 +421,8 @@ def to_markdown(report: ComplianceReport) -> str:
             detail = f"lane={change.lane or '?'} impact={change.impact or '?'}"
             if change.contradiction and change.contradiction != "none":
                 detail += f" contradiction={change.contradiction}"
+            if change.coverage:
+                detail += f" coverage={change.coverage}"
             lines.append(f"  - {change.kind} {change.path} [{detail}]")
             if change.content is not None:
                 lines.append("    ```")
