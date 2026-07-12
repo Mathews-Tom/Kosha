@@ -135,6 +135,19 @@ class EvidenceStore:
                 )
         return run
 
+    def list_run_ids(self) -> tuple[str, ...]:
+        """Return every stored source-run id, sorted, or empty if none exist yet.
+
+        Enumerates the ``runs`` directory's manifest filenames directly rather
+        than requiring a caller to already know a run id -- the entry point
+        :func:`~kosha.evidence.verify.verify_evidence` uses to discover every
+        manifest a vault holds, not just the ones a commit trailer references.
+        """
+        runs_dir = self._root / "runs"
+        if not runs_dir.is_dir():
+            return ()
+        return tuple(sorted(path.stem for path in runs_dir.glob("*.json")))
+
 
 def _ensure_private_dir(path: Path) -> None:
     """Create ``path`` and any missing parents, enforcing ``0700`` despite umask."""
