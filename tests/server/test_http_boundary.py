@@ -1,6 +1,7 @@
 """Sandboxed HTTP/SSE boundary: traversal-only, no filesystem exposure (M9 PR-1).
 
-A served client only ever talks to ``GET /bundles``, ``GET /events``, and
+A served client only ever talks to ``GET /bundles``, ``GET /health``,
+``GET /activations``, ``POST /refresh/<bundle_id>``, and
 ``POST /tools/<tool>``. These tests exercise the real ``KoshaHttpServer`` over
 a loopback TCP socket (not the handler class in isolation) so they defend
 what an actual network client experiences: only a clearance-authorized bundle
@@ -56,19 +57,16 @@ def test_get_bundles_lists_only_the_authorized_bundle(
     }
 
 
-def test_get_events_reports_the_ready_event_with_authorized_bundles_only(
+def test_get_activations_is_a_one_shot_json_endpoint_scoped_to_authorized_bundles(
     registry: BundleRegistry, start_server: StartServer
 ) -> None:
     server: RunningServer = start_server(registry)
-    status, headers, body = _get(server.connection(), "/events")
+    status, headers, body = _get(server.connection(), "/activations")
 
     assert status == 200
-    assert "text/event-stream" in headers.get("Content-Type", "")
-    text = body.decode("utf-8")
-    event_line, _, rest = text.partition("\n")
-    assert event_line == "event: ready"
-    data_line = rest.strip().removeprefix("data: ")
-    assert json.loads(data_line) == {"bundles": ["northwind"]}
+    assert "application/json" in headers.get("Content-Type", "")
+    # Nothing has been refreshed yet -- no activations have occurred.
+    assert json.loads(body) == {"activations": []}
 
 
 def test_post_tools_answers_a_traversal_call_for_the_authorized_bundle(
@@ -191,7 +189,8 @@ def test_filesystem_like_get_paths_return_404_never_file_contents(
 
     assert status == 404
     # The real markdown body must never leak through a raw path probe: there
-    # is no filesystem-serving route at all, only /bundles, /events, /tools/*.
+    # is no filesystem-serving route at all, only /bundles, /health,
+    # /activations, /refresh/<id>, /tools/*.
     assert b"3-5 business days" not in body
 
 
