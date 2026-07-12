@@ -196,6 +196,10 @@ Without MCP, the same protocol ships as an `AGENTS.md` fragment ([`consumer/AGEN
 | `kosha evidence verify` | Verify every stored evidence manifest, object, and commit trailer. |
 | `kosha evidence show` | Show one stored source-run's metadata (--content also prints its evidence text). |
 | `kosha evidence replay` | Replay a stored source run through the current pipeline as a zero-network dry run. |
+| `kosha source` | List, run, and inspect configured source instances and their cursor state. |
+| `kosha source list` | List configured source instances from a source-instance config file. |
+| `kosha source run` | Run one configured source instance once behind the plan->approve->commit gate. |
+| `kosha source status` | Show one source instance's configuration and durable cursor state. |
 | `kosha recover` | Backup-tag-based recovery: list backups, restore, or reindex. |
 | `kosha recover backups` | List available backup tags. |
 | `kosha recover restore` | Restore a bundle to a backup tag's recorded state. |
