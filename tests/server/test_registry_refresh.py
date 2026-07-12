@@ -231,10 +231,13 @@ def test_refresh_error_message_never_contains_source_or_concept_body_text(
     _write_concept(root, title="Good")
     registry = _registry(root)
 
-    # Malformed YAML frontmatter whose body carries the marker -- a naive
-    # implementation that echoes str(exc)/file text could leak it.
+    # Malformed YAML *frontmatter* carrying the marker -- load_raw_frontmatter
+    # only ever hands yaml.safe_load the frontmatter block, so this is the
+    # text a naive `str(exc)` implementation (yaml.YAMLError echoes the
+    # offending line) could actually leak; a marker placed in the body would
+    # never reach this exception and the test would pass vacuously.
     (root / "concept.md").write_text(
-        f"---\ntype: [unterminated\n---\n{secret}\n", encoding="utf-8"
+        f"---\ntype: [{secret}\n---\nBody text.\n", encoding="utf-8"
     )
     outcome = registry.refresh("b")
 

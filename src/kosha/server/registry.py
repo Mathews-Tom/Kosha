@@ -150,8 +150,9 @@ class BundleRegistry:
     def authorized_bundle_revisions(self) -> list[BundleRevisionView]:
         """Return id + active revision for every bundle the caller may see."""
 
+        active = self._active  # single snapshot: authorization and revision agree
         return [
-            {"bundle_id": bundle_id, "revision": self._active[bundle_id].revision}
+            {"bundle_id": bundle_id, "revision": active[bundle_id].revision}
             for bundle_id in self.authorized_bundle_ids()
         ]
 
@@ -265,12 +266,14 @@ class BundleRegistry:
         except Exception as exc:
             return self._fail(bundle_id, current, "revision", exc, clock)
         if candidate_revision == current.revision:
+            # On-disk content genuinely matches what is being served -- this is
+            # unambiguously "current", even if a prior attempt (since reverted)
+            # left a stale "failed" health/error behind.
+            with self._lock:
+                self._health[bundle_id] = "current"
+                self._errors[bundle_id] = None
             return RefreshOutcome(
-                bundle_id=bundle_id,
-                changed=False,
-                revision=current.revision,
-                health=self._health[bundle_id],
-                error=self._errors[bundle_id],
+                bundle_id=bundle_id, changed=False, revision=current.revision, health="current"
             )
         try:
             bundle = load_bundle(root)
