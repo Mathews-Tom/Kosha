@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from kosha.audit import build_report, require_export_access, to_json, to_markdown
+from kosha.evidence import EvidenceStore
 from kosha.git_store import GitStore
 from kosha.mcp.service import AccessDeniedError
 from kosha.pipeline import ingest
@@ -211,3 +212,103 @@ def test_require_export_access_allows_a_cleared_bundle() -> None:
 
 def test_require_export_access_allows_an_open_bundle() -> None:
     require_export_access(None, [])  # does not raise
+
+
+# --- M3: verified vs. legacy evidence provenance ----------------------------
+
+
+def test_a_post_m3_ingest_commit_reports_verified_evidence_provenance(
+    tmp_path: Path,
+) -> None:
+    bundle, store = _seed_bundle(tmp_path)
+    vault = EvidenceStore(tmp_path / "vault")
+    result = ingest(
+        _policy_update_source(tmp_path),
+        bundle,
+        asof=_ASOF,
+        source_authority=10,
+        git_store=store,
+        branch="ingest/evidence",
+        evidence_store=vault,
+    )
+    assert result.committed is True
+    assert result.evidence_run is not None
+
+    report = build_report(bundle)
+    ingest_commit = report.commits[-1]
+    assert ingest_commit.evidence_status == "verified"
+    assert ingest_commit.source_run == result.evidence_run.run.run_id
+    assert ingest_commit.evidence_sha256 == (
+        result.evidence_run.run.evidence[0].sha256,
+    )
+    assert report.verified_evidence_count == 1
+    assert report.legacy_provenance_count == 0
+
+
+def test_a_legacy_ingest_commit_reports_legacy_provenance_not_fabricated(
+    tmp_path: Path,
+) -> None:
+    bundle, store = _seed_bundle(tmp_path)
+    (bundle / "policies" / "shipping.md").write_text(
+        "---\ntype: policy\ntitle: Shipping\n---\nShips within 3 days.\n", encoding="utf-8"
+    )
+    store.commit(
+        ["policies/shipping.md"],
+        "feat(kosha): ingest legacy\n\n- create policies/shipping.md",
+    )
+
+    report = build_report(bundle)
+    legacy = report.commits[-1]
+    assert legacy.is_ingest is True
+    assert legacy.evidence_status == "legacy"
+    assert legacy.source_run is None
+    assert legacy.evidence_sha256 == ()
+    assert report.legacy_provenance_count == 1
+    assert report.verified_evidence_count == 0
+
+
+def test_the_seed_commit_reports_evidence_status_not_applicable(tmp_path: Path) -> None:
+    bundle, _ = _seed_bundle(tmp_path)
+    report = build_report(bundle)
+    assert report.commits[0].evidence_status == "n/a"
+
+
+def test_to_json_includes_evidence_lineage_and_honest_status(tmp_path: Path) -> None:
+    bundle, store = _seed_bundle(tmp_path)
+    vault = EvidenceStore(tmp_path / "vault")
+    ingest(
+        _policy_update_source(tmp_path),
+        bundle,
+        asof=_ASOF,
+        source_authority=10,
+        git_store=store,
+        branch="ingest/evidence-json",
+        evidence_store=vault,
+    )
+    payload = to_json(build_report(bundle))
+    ingest_commit = payload["commits"][-1]
+    assert ingest_commit["evidence_status"] == "verified"
+    assert ingest_commit["source_run"] is not None
+    assert len(ingest_commit["evidence_sha256"]) == 1
+    assert payload["summary"]["verified_evidence_count"] == 1
+    assert payload["summary"]["legacy_provenance_count"] == 0
+    # Metadata only: the digest is present, the evidence body never is.
+    assert "text" not in ingest_commit
+    assert "evidence_text" not in ingest_commit
+
+
+def test_to_markdown_reports_evidence_status_per_commit(tmp_path: Path) -> None:
+    bundle, store = _seed_bundle(tmp_path)
+    vault = EvidenceStore(tmp_path / "vault")
+    ingest(
+        _policy_update_source(tmp_path),
+        bundle,
+        asof=_ASOF,
+        source_authority=10,
+        git_store=store,
+        branch="ingest/evidence-md",
+        evidence_store=vault,
+    )
+    document = to_markdown(build_report(bundle))
+    assert "- evidence: verified" in document
+    assert "evidence: verified=1 legacy=0" in document
