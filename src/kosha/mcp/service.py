@@ -189,6 +189,18 @@ class KoshaKnowledgeService:
     def bundle(self) -> Bundle:
         return self._bundle
 
+    @property
+    def index(self) -> EmbeddingIndex:
+        return self._index
+
+    @property
+    def bundle_access(self) -> str | None:
+        return self._bundle_access
+
+    @property
+    def clearance(self) -> frozenset[str]:
+        return self._clearance
+
     def list_index(self, scope: str = "") -> IndexView:
         """Return the structured listing of a directory's direct contents.
 

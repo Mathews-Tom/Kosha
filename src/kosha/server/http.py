@@ -55,7 +55,7 @@ class KoshaHttpHandler(BaseHTTPRequestHandler):
         if path == "/bundles":
             self._send_json(
                 HTTPStatus.OK,
-                {"bundles": self.server.registry.authorized_bundle_ids()},
+                {"bundles": self.server.registry.authorized_bundle_revisions()},
             )
             return
         if path == "/events":

@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import TypedDict, cast
 
 from mcp.server.fastmcp import FastMCP
 
@@ -29,7 +30,38 @@ from kosha.mcp.service import (
     resolve_bundle_access,
     resolve_clearance,
 )
-from kosha.server.registry import BundleRegistration, BundleRegistry
+from kosha.server.registry import BundleRegistration, BundleRegistry, BundleRevisionView
+
+
+class BundleListView(TypedDict):
+    """``list_bundles``' response: every authorized bundle's id and revision."""
+
+    bundles: list[BundleRevisionView]
+
+
+class RevisionedIndexView(IndexView):
+    revision: str
+
+
+class RevisionedFrontmatterView(FrontmatterView):
+    revision: str
+
+
+class RevisionedConceptView(ConceptView):
+    revision: str
+
+
+class RevisionedFindView(FindView):
+    revision: str
+
+
+class RevisionedLinksView(LinksView):
+    revision: str
+
+
+class RevisionedClaimHistoryView(ClaimHistoryView):
+    revision: str
+
 
 _INSTRUCTIONS = (
     "Answer from this OKF bundle by traversal, never by guessing or grepping. "
@@ -53,43 +85,53 @@ def _build_registry_server(registry: BundleRegistry, *, name: str) -> FastMCP:
     server = FastMCP(name, instructions=_INSTRUCTIONS)
 
     @server.tool()
-    def list_bundles() -> dict[str, list[str]]:
-        """List bundle ids visible to the caller's configured clearance."""
-        return {"bundles": registry.authorized_bundle_ids()}
+    def list_bundles() -> BundleListView:
+        """List bundles visible to the caller's configured clearance, with revision."""
+        return {"bundles": registry.authorized_bundle_revisions()}
 
     @server.tool()
-    def list_index(bundle_id: str, scope: str = "") -> IndexView:
+    def list_index(bundle_id: str, scope: str = "") -> RevisionedIndexView:
         """List a bundle directory's direct contents (subdirectories + concepts)."""
-        return registry.require_service(bundle_id).list_index(scope)
+        result = registry.call_tool(bundle_id, "list_index", {"scope": scope})
+        return cast(RevisionedIndexView, result)
 
     @server.tool()
-    def read_frontmatter(bundle_id: str, concept_id: str) -> FrontmatterView:
+    def read_frontmatter(bundle_id: str, concept_id: str) -> RevisionedFrontmatterView:
         """Read a concept's frontmatter without its body."""
-        return registry.require_service(bundle_id).read_frontmatter(concept_id)
+        result = registry.call_tool(bundle_id, "read_frontmatter", {"concept_id": concept_id})
+        return cast(RevisionedFrontmatterView, result)
 
     @server.tool()
     def load_concept(
         bundle_id: str, concept_id: str, asof: str | None = None
-    ) -> ConceptView:
+    ) -> RevisionedConceptView:
         """Load a concept's body, showing only the claims currently in force."""
-        return registry.require_service(bundle_id).load_concept(concept_id, asof=asof)
+        result = registry.call_tool(
+            bundle_id, "load_concept", {"concept_id": concept_id, "asof": asof}
+        )
+        return cast(RevisionedConceptView, result)
 
     @server.tool()
-    def find_concepts(bundle_id: str, query: str, k: int = 3) -> FindView:
+    def find_concepts(bundle_id: str, query: str, k: int = 3) -> RevisionedFindView:
         """Jump to concepts within one addressed bundle, never across bundles."""
-        return registry.require_service(bundle_id).find_concepts(query, k)
+        result = registry.call_tool(bundle_id, "find_concepts", {"query": query, "k": k})
+        return cast(RevisionedFindView, result)
 
     @server.tool()
-    def follow_links(bundle_id: str, concept_id: str) -> LinksView:
+    def follow_links(bundle_id: str, concept_id: str) -> RevisionedLinksView:
         """List a concept's links and backlinks so you can traverse the graph."""
-        return registry.require_service(bundle_id).follow_links(concept_id)
+        result = registry.call_tool(bundle_id, "follow_links", {"concept_id": concept_id})
+        return cast(RevisionedLinksView, result)
 
     @server.tool()
     def claim_history(
         bundle_id: str, concept_id: str, claim_id: str | None = None
-    ) -> ClaimHistoryView:
+    ) -> RevisionedClaimHistoryView:
         """Show a concept's claim lineage: full audit trail, or one claim's chain."""
-        return registry.require_service(bundle_id).claim_history(concept_id, claim_id)
+        result = registry.call_tool(
+            bundle_id, "claim_history", {"concept_id": concept_id, "claim_id": claim_id}
+        )
+        return cast(RevisionedClaimHistoryView, result)
 
     return server
 

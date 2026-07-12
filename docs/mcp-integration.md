@@ -23,7 +23,7 @@ Inside the MCP surface, these tools are the way to read the knowledge base. They
 <!-- kosha:sync:start mcp-tool-table -->
 | Tool | Signature | Returns |
 |---|---|---|
-| `list_bundles` | `()` | List bundle ids visible to the caller's configured clearance |
+| `list_bundles` | `()` | List bundles visible to the caller's configured clearance, with revision |
 | `list_index` | `(bundle_id: str, scope: str = '')` | List a bundle directory's direct contents (subdirectories + concepts) |
 | `read_frontmatter` | `(bundle_id: str, concept_id: str)` | Read a concept's frontmatter without its body |
 | `load_concept` | `(bundle_id: str, concept_id: str, asof: str \| None = None)` | Load a concept's body, showing only the claims currently in force |

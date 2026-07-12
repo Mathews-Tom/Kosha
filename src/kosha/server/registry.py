@@ -1,15 +1,23 @@
 """Bundle registry for served traversal surfaces.
 
-The registry is the network-serving boundary's dispatch table. It holds loaded
-``KoshaKnowledgeService`` instances, requires an explicit bundle identity for every
-operation, and delegates each traversal call to exactly one bundle. It never offers
-a cross-bundle search path.
+The registry is the network-serving boundary's dispatch table. It holds one
+:class:`~kosha.server.revision.ActiveRegistration` per bundle id, requires an
+explicit bundle identity for every operation, and delegates each traversal
+call to exactly one bundle. It never offers a cross-bundle search path.
+
+Each registration tracks a deterministic content revision, a health status,
+and the most recent refresh failure (if any) -- the model M8 live serving
+activates atomically against (see :mod:`kosha.server.revision`). Every
+traversal response and the bundle listing carry the serving revision that
+answered them.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+import threading
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Literal, TypedDict, cast
 
@@ -17,6 +25,15 @@ from kosha.index.embedding import EmbeddingIndex
 from kosha.mcp.service import AccessDeniedError, KoshaKnowledgeService
 from kosha.okf.load import load_bundle
 from kosha.providers import resolve_embedding_provider
+from kosha.server.revision import (
+    ActivationEvent,
+    ActiveRegistration,
+    RefreshError,
+    RevisionHealth,
+    compute_bundle_revision,
+    default_clock,
+    resolve_source_git_head,
+)
 
 ToolName = Literal[
     "claim_history",
@@ -30,10 +47,30 @@ ToolArguments = Mapping[str, object]
 ToolResult = Mapping[str, object]
 
 
-class BundleInfo(TypedDict):
-    """One bundle visible to the current served caller."""
+class BundleRevisionView(TypedDict):
+    """One bundle's id and currently active revision, for an authorized caller."""
 
     bundle_id: str
+    revision: str
+
+
+class RefreshErrorView(TypedDict):
+    """The reporting-safe (source-free) shape of a :class:`RefreshError`."""
+
+    stage: str
+    message: str
+    occurred_at: str
+
+
+class BundleHealthView(TypedDict):
+    """One bundle's revision-aware serving state, for a health surface."""
+
+    bundle_id: str
+    revision: str
+    health: RevisionHealth
+    activated_at: str
+    source_git_head: str | None
+    last_error: RefreshErrorView | None
 
 
 @dataclass(frozen=True)
@@ -51,29 +88,41 @@ class BundleRegistration:
 
 
 class BundleRegistry:
-    """Explicit-bundle dispatch over traversal-only services."""
+    """Explicit-bundle dispatch over traversal-only services, revision-tracked."""
 
-    def __init__(self, registrations: Iterable[BundleRegistration]) -> None:
-        services: dict[str, KoshaKnowledgeService] = {}
+    def __init__(
+        self,
+        registrations: Iterable[BundleRegistration],
+        *,
+        clock: Callable[[], datetime] = default_clock,
+    ) -> None:
+        self._clock = clock
+        self._lock = threading.Lock()
+        active: dict[str, ActiveRegistration] = {}
         for registration in registrations:
-            if registration.bundle_id in services:
+            if registration.bundle_id in active:
                 raise ValueError(f"duplicate bundle_id {registration.bundle_id!r}")
-            services[registration.bundle_id] = registration.service
-        if not services:
+            active[registration.bundle_id] = _activate(
+                registration.bundle_id, registration.service, clock
+            )
+        if not active:
             raise ValueError("at least one bundle registration is required")
-        self._services = services
+        self._active = active
+        self._health: dict[str, RevisionHealth] = dict.fromkeys(active, "current")
+        self._errors: dict[str, RefreshError | None] = dict.fromkeys(active, None)
+        self._activation_events: list[ActivationEvent] = []
 
     def bundle_ids(self) -> list[str]:
         """Return every registered bundle id, regardless of caller clearance."""
 
-        return sorted(self._services)
+        return sorted(self._active)
 
     def authorized_bundle_ids(self) -> list[str]:
         """Return bundle ids whose service accepts the current caller clearance."""
 
         visible: list[str] = []
         for bundle_id in self.bundle_ids():
-            service = self._services[bundle_id]
+            service = self._active[bundle_id].service
             try:
                 service.list_index("")
             except AccessDeniedError:
@@ -81,56 +130,93 @@ class BundleRegistry:
             visible.append(bundle_id)
         return visible
 
+    def authorized_bundle_revisions(self) -> list[BundleRevisionView]:
+        """Return id + active revision for every bundle the caller may see."""
+
+        return [
+            {"bundle_id": bundle_id, "revision": self._active[bundle_id].revision}
+            for bundle_id in self.authorized_bundle_ids()
+        ]
+
     def require_service(self, bundle_id: str) -> KoshaKnowledgeService:
         """Return the service for ``bundle_id`` or fail without path interpretation."""
 
+        return self.active_registration(bundle_id).service
+
+    def active_registration(self, bundle_id: str) -> ActiveRegistration:
+        """Return the currently active, validated registration for ``bundle_id``."""
+
         if not bundle_id:
             raise KeyError("bundle_id is required")
+        active = self._active  # snapshot the reference once; swaps replace it wholesale
         try:
-            return self._services[bundle_id]
+            return active[bundle_id]
         except KeyError as exc:
             raise KeyError(f"unknown bundle_id {bundle_id!r}") from exc
+
+    def health(self, bundle_id: str) -> RevisionHealth:
+        """Return the health recorded by the most recent refresh attempt (no live check)."""
+
+        self.active_registration(bundle_id)  # validates bundle_id, fails loud
+        return self._health[bundle_id]
+
+    def last_error(self, bundle_id: str) -> RefreshError | None:
+        """Return the most recent refresh failure for ``bundle_id``, if any."""
+
+        self.active_registration(bundle_id)
+        return self._errors[bundle_id]
+
+    def activation_events(self, bundle_id: str | None = None) -> tuple[ActivationEvent, ...]:
+        """Return the activation history, optionally filtered to one bundle id."""
+
+        if bundle_id is None:
+            return tuple(self._activation_events)
+        return tuple(event for event in self._activation_events if event.bundle_id == bundle_id)
+
+    def health_view(self, bundle_id: str) -> BundleHealthView:
+        """Return the reporting-safe health snapshot for ``bundle_id``.
+
+        ``health`` here is a *live* check: a previously failed refresh attempt
+        always reports ``"failed"``; otherwise the bundle's current on-disk
+        revision is recomputed and compared against the active one, so a
+        source change that has not yet been refreshed reports ``"stale"``
+        rather than falsely claiming ``"current"``.
+        """
+
+        registration = self.active_registration(bundle_id)
+        return {
+            "bundle_id": bundle_id,
+            "revision": registration.revision,
+            "health": self._live_health(bundle_id, registration),
+            "activated_at": registration.activated_at,
+            "source_git_head": registration.source_git_head,
+            "last_error": _error_view(self._errors[bundle_id]),
+        }
+
+    def _live_health(self, bundle_id: str, registration: ActiveRegistration) -> RevisionHealth:
+        if self._health[bundle_id] == "failed":
+            return "failed"
+        try:
+            root = Path(registration.service.bundle.root_path)
+            current_source_revision = compute_bundle_revision(root)
+        except Exception:
+            return "stale"
+        return "current" if current_source_revision == registration.revision else "stale"
 
     def call_tool(
         self, bundle_id: str, tool_name: ToolName | str, arguments: ToolArguments
     ) -> ToolResult:
-        """Dispatch one traversal call to exactly one addressed bundle."""
+        """Dispatch one traversal call to exactly one addressed bundle.
 
-        service = self.require_service(bundle_id)
-        if tool_name == "list_index":
-            return cast(ToolResult, service.list_index(_optional_str(arguments, "scope", "")))
-        if tool_name == "read_frontmatter":
-            return cast(
-                ToolResult,
-                service.read_frontmatter(_required_str(arguments, "concept_id")),
-            )
-        if tool_name == "load_concept":
-            return cast(
-                ToolResult,
-                service.load_concept(
-                    _required_str(arguments, "concept_id"),
-                    asof=_optional_nullable_str(arguments, "asof"),
-                ),
-            )
-        if tool_name == "find_concepts":
-            return cast(
-                ToolResult,
-                service.find_concepts(
-                    _required_str(arguments, "query"),
-                    _optional_int(arguments, "k", 3),
-                ),
-            )
-        if tool_name == "follow_links":
-            return cast(ToolResult, service.follow_links(_required_str(arguments, "concept_id")))
-        if tool_name == "claim_history":
-            return cast(
-                ToolResult,
-                service.claim_history(
-                    _required_str(arguments, "concept_id"),
-                    _optional_nullable_str(arguments, "claim_id"),
-                ),
-            )
-        raise KeyError(f"unknown traversal tool {tool_name!r}")
+        The active registration is snapshotted once up front, so the
+        ``revision`` merged into the response always matches the exact
+        service instance that answered -- even if a concurrent refresh
+        activates a newer revision while this call is still in flight.
+        """
+
+        registration = self.active_registration(bundle_id)
+        result = _dispatch(registration.service, tool_name, arguments)
+        return {**dict(result), "revision": registration.revision}
 
 
 def build_single_bundle_registry(
@@ -198,6 +284,64 @@ def _load_registration(
         clearance=clearance,
     )
     return BundleRegistration(bundle_id=bundle_id, service=service)
+
+
+def _activate(
+    bundle_id: str, service: KoshaKnowledgeService, clock: Callable[[], datetime]
+) -> ActiveRegistration:
+    root = Path(service.bundle.root_path)
+    return ActiveRegistration(
+        bundle_id=bundle_id,
+        service=service,
+        revision=compute_bundle_revision(root),
+        activated_at=clock().isoformat(),
+        source_git_head=resolve_source_git_head(root),
+    )
+
+
+def _error_view(error: RefreshError | None) -> RefreshErrorView | None:
+    if error is None:
+        return None
+    return {"stage": error.stage, "message": error.message, "occurred_at": error.occurred_at}
+
+
+def _dispatch(
+    service: KoshaKnowledgeService, tool_name: ToolName | str, arguments: ToolArguments
+) -> ToolResult:
+    if tool_name == "list_index":
+        return cast(ToolResult, service.list_index(_optional_str(arguments, "scope", "")))
+    if tool_name == "read_frontmatter":
+        return cast(
+            ToolResult,
+            service.read_frontmatter(_required_str(arguments, "concept_id")),
+        )
+    if tool_name == "load_concept":
+        return cast(
+            ToolResult,
+            service.load_concept(
+                _required_str(arguments, "concept_id"),
+                asof=_optional_nullable_str(arguments, "asof"),
+            ),
+        )
+    if tool_name == "find_concepts":
+        return cast(
+            ToolResult,
+            service.find_concepts(
+                _required_str(arguments, "query"),
+                _optional_int(arguments, "k", 3),
+            ),
+        )
+    if tool_name == "follow_links":
+        return cast(ToolResult, service.follow_links(_required_str(arguments, "concept_id")))
+    if tool_name == "claim_history":
+        return cast(
+            ToolResult,
+            service.claim_history(
+                _required_str(arguments, "concept_id"),
+                _optional_nullable_str(arguments, "claim_id"),
+            ),
+        )
+    raise KeyError(f"unknown traversal tool {tool_name!r}")
 
 
 def _required_str(arguments: ToolArguments, key: str) -> str:
