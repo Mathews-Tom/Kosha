@@ -25,8 +25,8 @@ def _write(path: Path, entries: list[dict[str, object]]) -> Path:
 # --- explicit registry --------------------------------------------------
 
 
-def test_the_registry_ships_exactly_folder_url_and_git() -> None:
-    assert set(CONNECTOR_REGISTRY) == {"folder", "url", "git"}
+def test_the_registry_ships_exactly_folder_url_git_and_mcp() -> None:
+    assert set(CONNECTOR_REGISTRY) == {"folder", "url", "git", "mcp"}
 
 
 def test_resolve_connector_returns_the_matching_definition() -> None:

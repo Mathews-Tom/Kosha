@@ -24,6 +24,7 @@ def test_source_kind_exhausts_known_values() -> None:
         "workspace_export",
         "document",
         "git",
+        "mcp",
     }
 
 
