@@ -161,7 +161,7 @@ _EVIDENCE_MEDIA_TYPE = "text/plain"
 EVIDENCE_NORMALIZATION_VERSION = "1"
 # Placeholder pending M6 source-instance identity: one stable id per attempt,
 # derived from the source the caller is ingesting.
-_ADAPTER_VERSION = "1"
+ADAPTER_VERSION = "1"
 
 
 @dataclass(frozen=True)
@@ -241,7 +241,7 @@ def bind_evidence(
         bundle_identity=bundle_identity,
         source_instance_id=source_instance_id,
         adapter=adapter,
-        adapter_version=_ADAPTER_VERSION,
+        adapter_version=ADAPTER_VERSION,
         started_at=started_at,
         completed_at=completed_at,
         status=status,

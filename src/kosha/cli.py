@@ -73,6 +73,11 @@ from kosha.eval import (
     load_merge_cases,
     load_relate_cases,
 )
+from kosha.evidence import EvidenceCorruptionError, EvidenceStore
+from kosha.evidence.model import SourceRun
+from kosha.evidence.paths import evidence_root
+from kosha.evidence.replay import ReplayError, render_replay_text, replay_run
+from kosha.evidence.verify import render_verification_text, verify_evidence
 from kosha.git_store import GitStore
 from kosha.ingest.url import UrlIngestError
 from kosha.ingest.watch import ScheduledIngest, SourcePolicy
@@ -581,6 +586,83 @@ def build_parser() -> argparse.ArgumentParser:
             "only, since source body text may be sensitive."
         ),
     )
+    evidence_parser = subparsers.add_parser(
+        "evidence",
+        help="Verify, inspect, and replay stored evidence for a bundle.",
+    )
+    evidence_subparsers = evidence_parser.add_subparsers(dest="evidence_command")
+    evidence_verify_parser = evidence_subparsers.add_parser(
+        "verify",
+        help="Verify every stored evidence manifest, object, and commit trailer.",
+    )
+    evidence_verify_parser.add_argument(
+        "bundle",
+        type=Path,
+        help="Path to the OKF bundle directory (a Git repository).",
+    )
+    evidence_verify_parser.add_argument(
+        "--ref",
+        type=str,
+        default="HEAD",
+        help="Git ref to walk for ingest commit trailers (default: HEAD).",
+    )
+    evidence_verify_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
+    evidence_show_parser = evidence_subparsers.add_parser(
+        "show",
+        help="Show one stored source-run's metadata (--content also prints its evidence text).",
+    )
+    evidence_show_parser.add_argument(
+        "bundle",
+        type=Path,
+        help="Path to the OKF bundle directory (a Git repository).",
+    )
+    evidence_show_parser.add_argument(
+        "run_id",
+        type=str,
+        help="Source-run id (see 'kosha evidence verify' or a commit's Source-Run trailer).",
+    )
+    evidence_show_parser.add_argument(
+        "--content",
+        action="store_true",
+        help=(
+            "Also print each evidence document's exact normalized text. "
+            "Default: metadata only, since source body text may be sensitive."
+        ),
+    )
+    evidence_show_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
+    evidence_replay_parser = evidence_subparsers.add_parser(
+        "replay",
+        help="Replay a stored source run through the current pipeline as a zero-network dry run.",
+    )
+    evidence_replay_parser.add_argument(
+        "bundle",
+        type=Path,
+        help="Path to the OKF bundle directory (a Git repository).",
+    )
+    evidence_replay_parser.add_argument(
+        "run_id",
+        type=str,
+        help="Source-run id to replay.",
+    )
+    evidence_replay_parser.add_argument(
+        "--ref",
+        type=str,
+        default="HEAD",
+        help="Git ref to look up the run's original commit on, for a path diff (default: HEAD).",
+    )
+    evidence_replay_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the result as structured JSON instead of text.",
+    )
     recover_parser = subparsers.add_parser(
         "recover",
         help="Backup-tag-based recovery: list backups, restore, or reindex.",
@@ -766,6 +848,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_review_queue(args)
     if args.command == "export":
         return _run_export(args)
+    if args.command == "evidence":
+        return _run_evidence(args)
     if args.command == "calibrate":
         return _run_calibrate(args)
     if args.command == "sync":
@@ -1223,6 +1307,104 @@ def _run_export(args: argparse.Namespace) -> int:
         print(f"Wrote compliance export to {args.out}")
     else:
         print(rendered)
+    return 0
+
+
+def _run_evidence(args: argparse.Namespace) -> int:
+    """Run ``kosha evidence`` subcommands."""
+    if args.evidence_command == "verify":
+        return _run_evidence_verify(args)
+    if args.evidence_command == "show":
+        return _run_evidence_show(args)
+    if args.evidence_command == "replay":
+        return _run_evidence_replay(args)
+    print(
+        "kosha: evidence requires a subcommand: verify, show, replay",
+        file=sys.stderr,
+    )
+    return 2
+
+
+def _run_evidence_verify(args: argparse.Namespace) -> int:
+    """Run ``kosha evidence verify``: check every stored manifest, object, and trailer."""
+    if not args.bundle.is_dir():
+        print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
+        return 2
+    report = verify_evidence(args.bundle, ref=args.ref)
+    if args.json:
+        print(cli_json.dumps(cli_json.evidence_verify_json(report)))
+        return 0 if report.ok else 1
+    print(render_verification_text(report))
+    return 0 if report.ok else 1
+
+
+def _run_evidence_show(args: argparse.Namespace) -> int:
+    """Run ``kosha evidence show``: metadata-only by default, body only with ``--content``."""
+    if not args.bundle.is_dir():
+        print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
+        return 2
+    vault = EvidenceStore(evidence_root(args.bundle))
+    try:
+        run = vault.read_run(args.run_id)
+        texts = (
+            {document.sha256: vault.read_object(document.sha256) for document in run.evidence}
+            if args.content
+            else None
+        )
+    except EvidenceCorruptionError as exc:
+        print(f"kosha: evidence corruption: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(cli_json.dumps(cli_json.evidence_show_json(run, texts)))
+        return 0
+    print(_render_evidence_show_text(run, texts))
+    return 0
+
+
+def _render_evidence_show_text(run: SourceRun, texts: dict[str, str] | None) -> str:
+    lines = [
+        f"Source run {run.run_id}",
+        f"  bundle_identity:    {run.bundle_identity}",
+        f"  source_instance_id: {run.source_instance_id}",
+        f"  adapter:            {run.adapter} (v{run.adapter_version})",
+        f"  started_at:         {run.started_at.isoformat()}",
+        f"  completed_at:       {run.completed_at.isoformat()}",
+        f"  status:             {run.status.value}",
+    ]
+    if run.detector_names:
+        lines.append(f"  detector_names:     {', '.join(run.detector_names)}")
+    lines.append(f"  evidence documents: {len(run.evidence)}")
+    for document in run.evidence:
+        lines.append(f"    - {document.sha256}")
+        lines.append(f"      source_id: {document.source_id}")
+        lines.append(f"      location:  {document.location}")
+        lines.append(
+            f"      bytes:     {document.normalized_text_bytes} "
+            f"(normalization v{document.normalization_version})"
+        )
+        if texts is not None:
+            lines.append("      content:")
+            lines.extend(f"        {line}" for line in texts[document.sha256].splitlines())
+    return "\n".join(lines)
+
+
+def _run_evidence_replay(args: argparse.Namespace) -> int:
+    """Run ``kosha evidence replay``: zero-network dry run against stored evidence."""
+    if not args.bundle.is_dir():
+        print(f"kosha: not a bundle directory: {args.bundle}", file=sys.stderr)
+        return 2
+    try:
+        report = replay_run(args.bundle, args.run_id, ref=args.ref)
+    except EvidenceCorruptionError as exc:
+        print(f"kosha: evidence corruption: {exc}", file=sys.stderr)
+        return 1
+    except ReplayError as exc:
+        print(f"kosha: {exc}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(cli_json.dumps(cli_json.evidence_replay_json(report)))
+        return 0
+    print(render_replay_text(report))
     return 0
 
 

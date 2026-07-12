@@ -17,6 +17,7 @@ existing surface already does.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,9 @@ from kosha.eval import (
     MergeEvalReport,
     RelateEvalReport,
 )
+from kosha.evidence.model import SourceRun
+from kosha.evidence.replay import ReplayReport
+from kosha.evidence.verify import VerificationReport
 from kosha.pipeline import IngestResult
 from kosha.recovery import BackupTag, RecoveryRecord, ReindexPlan, RestorePlan
 from kosha.release import ReleaseRecord
@@ -405,4 +409,107 @@ def release_json(bundle: Path, record: ReleaseRecord) -> dict[str, Any]:
         "concept_count": record.concept_count,
         "warning_count": record.warning_count,
         "export_path": record.export_path,
+    }
+
+
+def evidence_verify_json(report: VerificationReport) -> dict[str, Any]:
+    """Structured ``kosha evidence verify --json`` result."""
+    return {
+        "bundle_root": report.bundle_root,
+        "evidence_root": report.evidence_root,
+        "ref": report.ref,
+        "ok": report.ok,
+        "run_count": len(report.runs),
+        "corrupt_run_count": report.corrupt_run_count,
+        "commit_count": len(report.commits),
+        "unresolved_commit_count": report.unresolved_commit_count,
+        "legacy_commit_count": report.legacy_commit_count,
+        "runs": [
+            {
+                "run_id": run.run_id,
+                "ok": run.ok,
+                "evidence_object_count": run.evidence_object_count,
+                "error": run.error,
+            }
+            for run in report.runs
+        ],
+        "commits": [
+            {
+                "sha": commit.sha,
+                "source_run": commit.source_run,
+                "evidence_sha256": list(commit.evidence_sha256),
+                "ok": commit.ok,
+                "error": commit.error,
+            }
+            for commit in report.commits
+        ],
+    }
+
+
+def evidence_show_json(run: SourceRun, texts: Mapping[str, str] | None) -> dict[str, Any]:
+    """Structured ``kosha evidence show --json`` result.
+
+    ``texts`` is ``None`` unless ``--content`` was explicit; the payload never
+    includes a document's normalized text otherwise.
+    """
+    return {
+        "run_id": run.run_id,
+        "bundle_identity": run.bundle_identity,
+        "source_instance_id": run.source_instance_id,
+        "adapter": run.adapter,
+        "adapter_version": run.adapter_version,
+        "started_at": run.started_at.isoformat(),
+        "completed_at": run.completed_at.isoformat(),
+        "status": run.status.value,
+        "detector_names": list(run.detector_names),
+        "warnings": list(run.warnings),
+        "evidence": [
+            {
+                "sha256": document.sha256,
+                "source_id": document.source_id,
+                "location": document.location,
+                "retrieved_at": (
+                    document.retrieved_at.isoformat() if document.retrieved_at else None
+                ),
+                "media_type": document.media_type,
+                "normalized_text_bytes": document.normalized_text_bytes,
+                "normalization_version": document.normalization_version,
+                **({"text": texts[document.sha256]} if texts is not None else {}),
+            }
+            for document in run.evidence
+        ],
+    }
+
+
+def evidence_replay_json(report: ReplayReport) -> dict[str, Any]:
+    """Structured ``kosha evidence replay --json`` result."""
+    return {
+        "run_id": report.run_id,
+        "bundle_root": report.bundle_root,
+        "original_pipeline": {
+            "adapter": report.original.adapter,
+            "adapter_version": report.original.adapter_version,
+            "normalization_versions": list(report.original.normalization_versions),
+        },
+        "current_pipeline": {
+            "adapter": report.current.adapter,
+            "adapter_version": report.current.adapter_version,
+            "normalization_versions": list(report.current.normalization_versions),
+        },
+        "pipeline_identity_changed": report.pipeline_identity_changed,
+        "current_providers": {
+            "embedding": report.current.embedding_provider,
+            "generation": report.current.generation_provider,
+        },
+        "original_provider_identity_recorded": False,
+        "replay_paths": list(report.replay_paths),
+        "original_commit": (
+            {"sha": report.original_commit_sha, "paths": list(report.original_paths)}
+            if report.original_commit_sha is not None
+            else None
+        ),
+        "path_differences": {
+            "added": list(report.added_paths),
+            "removed": list(report.removed_paths),
+        },
     }

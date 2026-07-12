@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from kosha.ingest.folder import ingest_folder
 from kosha.ingest.guardrails import (
+    ADAPTER_VERSION,
     DEFAULT_INGEST_POLICY,
+    EVIDENCE_NORMALIZATION_VERSION,
     EvidenceRun,
     IngestAdapter,
     IngestGuardrailError,
@@ -26,7 +28,9 @@ from kosha.ingest.workspace import (
 )
 
 __all__ = [
+    "ADAPTER_VERSION",
     "DEFAULT_INGEST_POLICY",
+    "EVIDENCE_NORMALIZATION_VERSION",
     "EvidenceRun",
     "IngestAdapter",
     "IngestGuardrailError",

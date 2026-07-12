@@ -4,8 +4,11 @@ Persists the exact accepted normalized text extraction consumes, with
 deterministic `SourceRun` manifests, restrictive permissions, and fail-loud
 corruption handling. See DEVELOPMENT_PLAN.md M2 and
 `.docs/memory-and-openwiki-enhancement-plan.md` §9 for the governing
-contract. This package defines contracts and one filesystem store only; it is
-not wired into the ingest pipeline (that is M3).
+contract. `kosha.pipeline.run.ingest` wires this vault into the maintenance
+loop (M3); `kosha.evidence.verify` and `kosha.evidence.replay` (M4) verify
+and replay stored runs -- import them directly rather than through this
+package, since both pull in `kosha.pipeline`, which itself imports this
+package.
 """
 
 from __future__ import annotations

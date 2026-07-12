@@ -4,7 +4,7 @@ The `kosha` command is installed by `uv sync`; run it as `uv run kosha <command>
 
 <!-- kosha:sync:start cli-reference -->
 ```text
-kosha [--version] [-h] {doctor,validate,bench,calibrate,eval,ingest,serve,review-queue,export,recover,sync,release} ...
+kosha [--version] [-h] {doctor,validate,bench,calibrate,eval,ingest,serve,review-queue,export,evidence,recover,sync,release} ...
 kosha doctor
 kosha doctor providers
 kosha validate
@@ -25,6 +25,10 @@ kosha review-queue
 kosha review-queue list
 kosha review-queue decide
 kosha export
+kosha evidence
+kosha evidence verify
+kosha evidence show
+kosha evidence replay
 kosha recover
 kosha recover backups
 kosha recover restore
@@ -302,6 +306,31 @@ Export compliance-grade audit evidence for a bundle's Git history. The default o
 
 ---
 
+## `kosha evidence`
+
+```text
+kosha evidence verify <bundle> [--ref REF] [--json]
+kosha evidence show <bundle> <run-id> [--content] [--json]
+kosha evidence replay <bundle> <run-id> [--ref REF] [--json]
+```
+
+Operator-facing evidence governance over the private content-addressed vault (`~/.kosha/evidence/<bundle-identity>/` by default): `verify` checks every stored manifest, its objects' hashes, and every `Source-Run`/`Evidence-SHA256` commit trailer; `show` inspects one stored run's metadata; `replay` re-runs the current pipeline against a run's exact stored bytes as a zero-network dry run.
+
+**Verify.** Walks every manifest the vault holds plus every evidence-bearing commit trailer reachable from `--ref` (default `HEAD`), re-hashing each referenced object rather than trusting manifest bookkeeping. A pre-M3 ingest commit with no evidence trailer is counted as `legacy`, never promoted to verified. Exits `0` only when every run and every evidence-bearing commit verify clean; any corrupt or missing object exits `1`.
+
+**Show.** Defaults to metadata only — run identity, adapter, timestamps, per-document digest/size/location. `--content` is the explicit gate before a document's exact normalized text prints; a missing or corrupt run exits `1` rather than printing anything.
+
+**Replay.** Reconstructs each evidence document's exact stored text and feeds it straight into the ordinary dry-run ingest path, using the fixed offline embedding/generation providers only — never the environment-resolved ones, so an operator's ambient `KOSHA_GEN_BASE_URL`/`KOSHA_EMBED_BASE_URL` can never turn a replay into a live network call. Reports the run's original adapter/normalization version identity next to the pipeline's current one, and — when the run's original commit is still reachable at `--ref` — diffs the replayed plan's paths against what that commit actually wrote, honestly labeled as a replay difference (the bundle may have moved on since), never as corruption. A rejected/failed run carries no stored body and cannot be replayed; a missing or corrupt run fails loud rather than substituting a live fetch. Both exit `1`.
+
+```bash
+uv run kosha evidence verify bundles/northwind
+uv run kosha evidence show bundles/northwind <run-id>
+uv run kosha evidence show bundles/northwind <run-id> --content
+uv run kosha evidence replay bundles/northwind <run-id>
+```
+
+---
+
 ## `kosha recover`
 
 ```text
@@ -409,3 +438,5 @@ KOSHA_BUNDLE=bundles/northwind uv run kosha-mcp
 | `2` | `recover` — unknown backup tag, not a bundle directory, or not a Git repository |
 | `1` | `sync check` — at least one public/generated surface drifted from source truth |
 | `1` | `release` — bundle not conformant, or the release tag already exists |
+| `1` | `evidence verify`/`show`/`replay` — evidence corruption, missing accepted evidence, or nothing to replay |
+| `2` | `evidence` — no subcommand, or not a bundle directory |
