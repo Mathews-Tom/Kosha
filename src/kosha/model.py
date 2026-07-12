@@ -45,6 +45,7 @@ class SourceKind(StrEnum):
     WORKSPACE_EXPORT = "workspace_export"
     DOCUMENT = "document"
     GIT = "git"
+    MCP = "mcp"
 
 
 class Frontmatter(BaseModel):

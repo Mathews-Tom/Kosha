@@ -6,7 +6,9 @@ from ``connector_id`` to a :class:`~kosha.connectors.model.ConnectorDefinition`.
 ordinary plan -> approve -> commit gate (``kosha.pipeline.run.ingest``) --
 the same two adapters ``kosha.ingest.watch.ScheduledIngest`` already drives
 (DEVELOPMENT_PLAN.md M6). ``git`` wires the bounded, read-only repository
-connector in :mod:`kosha.connectors.git` (DEVELOPMENT_PLAN.md M7).
+connector in :mod:`kosha.connectors.git`; ``mcp`` wires the allowlisted,
+read-only MCP connector in :mod:`kosha.connectors.mcp` (DEVELOPMENT_PLAN.md
+M7).
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from urllib.parse import urlsplit
 import pydantic
 
 from kosha.connectors.git import run_git_source
+from kosha.connectors.mcp import run_mcp_source
 from kosha.connectors.model import (
     ConnectorBackend,
     ConnectorDefinition,
@@ -109,9 +112,17 @@ GIT_CONNECTOR = ConnectorDefinition(
     supports_cursor=True,
 )
 
+MCP_CONNECTOR = ConnectorDefinition(
+    connector_id="mcp",
+    display_name="Allowlisted read-only MCP tool call",
+    backend=ConnectorBackend.MCP,
+    ingest=run_mcp_source,
+    required_config_keys=("command", "tool_name"),
+)
+
 CONNECTOR_REGISTRY: dict[str, ConnectorDefinition] = {
     connector.connector_id: connector
-    for connector in (FOLDER_CONNECTOR, URL_CONNECTOR, GIT_CONNECTOR)
+    for connector in (FOLDER_CONNECTOR, URL_CONNECTOR, GIT_CONNECTOR, MCP_CONNECTOR)
 }
 
 
