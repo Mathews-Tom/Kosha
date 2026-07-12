@@ -1,6 +1,7 @@
 """Sandboxed HTTP/SSE boundary: traversal-only, no filesystem exposure (M9 PR-1).
 
-A served client only ever talks to ``GET /bundles``, ``GET /events``, and
+A served client only ever talks to ``GET /bundles``, ``GET /health``,
+``GET /activations``, ``POST /refresh/<bundle_id>``, and
 ``POST /tools/<tool>``. These tests exercise the real ``KoshaHttpServer`` over
 a loopback TCP socket (not the handler class in isolation) so they defend
 what an actual network client experiences: only a clearance-authorized bundle
@@ -188,7 +189,8 @@ def test_filesystem_like_get_paths_return_404_never_file_contents(
 
     assert status == 404
     # The real markdown body must never leak through a raw path probe: there
-    # is no filesystem-serving route at all, only /bundles, /events, /tools/*.
+    # is no filesystem-serving route at all, only /bundles, /health,
+    # /activations, /refresh/<id>, /tools/*.
     assert b"3-5 business days" not in body
 
 

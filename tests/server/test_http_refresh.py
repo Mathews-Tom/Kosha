@@ -112,6 +112,40 @@ def test_get_health_and_activations_never_leak_concept_body_text(
         assert b"3-5 business days" not in body  # a known northwind body fragment
 
 
+def test_get_activations_excludes_an_unauthorized_bundles_events(
+    tmp_path: Path, start_server: StartServer
+) -> None:
+    public_root = tmp_path / "public"
+    locked_root = tmp_path / "locked"
+    _write_concept(public_root, title="Public before")
+    _write_concept(locked_root, title="Locked before")
+    locked_bundle = load_bundle(locked_root)
+    locked_service = KoshaKnowledgeService(
+        locked_bundle,
+        EmbeddingIndex.build(locked_bundle, LexicalEmbeddingProvider()),
+        bundle_access="confidential",  # server clearance below never grants this
+    )
+    registry = BundleRegistry(
+        [
+            BundleRegistration("public", _service(public_root)),
+            BundleRegistration("locked", locked_service),
+        ]
+    )
+    server: RunningServer = start_server(registry)
+
+    _write_concept(public_root, title="Public after")
+    _write_concept(locked_root, title="Locked after")
+    # refresh() itself has no ACL gate (only the HTTP /refresh endpoint does);
+    # both activate so the endpoint's own filtering is what's under test.
+    assert registry.refresh("public").changed is True
+    assert registry.refresh("locked").changed is True
+
+    _, _, body = _get(server.connection(), "/activations")
+    bundle_ids = {entry["bundle_id"] for entry in json.loads(body)["activations"]}
+
+    assert bundle_ids == {"public"}
+
+
 def test_end_to_end_refresh_updates_bundles_health_and_activations_over_http(
     tmp_path: Path, start_server: StartServer
 ) -> None:

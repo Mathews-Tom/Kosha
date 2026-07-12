@@ -31,7 +31,7 @@ class KoshaHttpServer(ThreadingHTTPServer):
 
 
 class KoshaHttpHandler(BaseHTTPRequestHandler):
-    """Expose only traversal calls and bundle discovery over HTTP/SSE."""
+    """Expose only traversal calls and bundle discovery over HTTP."""
 
     server: KoshaHttpServer
     protocol_version = "HTTP/1.1"
@@ -113,6 +113,7 @@ class KoshaHttpHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.OK, dict(result))
 
     def _handle_refresh(self, bundle_id: str) -> None:
+        self._drain_body()  # /refresh takes no body; keep-alive needs it consumed
         if not bundle_id or "/" in bundle_id:
             self._send_error(HTTPStatus.NOT_FOUND, "not_found", "unknown bundle_id")
             return
@@ -161,6 +162,26 @@ class KoshaHttpHandler(BaseHTTPRequestHandler):
             )
             return None
         return cast(JsonObject, decoded)
+
+    def _drain_body(self) -> None:
+        """Discard any request body so a keep-alive connection stays in sync.
+
+        Only ``/tools/*`` requires a body (parsed by :meth:`_read_json_body`,
+        which reads it as part of validating the request). Every other POST
+        endpoint is body-less by contract, but a client may still send a
+        ``Content-Length`` -- unread bytes would otherwise be misparsed as the
+        start of the next pipelined request on this ``HTTP/1.1`` connection.
+        """
+
+        content_length = self.headers.get("Content-Length")
+        if content_length is None:
+            return
+        try:
+            length = int(content_length)
+        except ValueError:
+            return
+        if length > 0:
+            self.rfile.read(length)
 
     def _send_json(self, status: HTTPStatus, body: JsonObject | ErrorBody) -> None:
         payload = json.dumps(body, sort_keys=True).encode("utf-8")
