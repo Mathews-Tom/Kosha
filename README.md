@@ -192,6 +192,10 @@ Without MCP, the same protocol ships as an `AGENTS.md` fragment ([`consumer/AGEN
 | `kosha review-queue list` | List queued BLOCK-lane review items. |
 | `kosha review-queue decide` | Append a reviewer decision to a queued item. |
 | `kosha export` | Export compliance-grade audit evidence for a bundle's git history. |
+| `kosha evidence` | Verify, inspect, and replay stored evidence for a bundle. |
+| `kosha evidence verify` | Verify every stored evidence manifest, object, and commit trailer. |
+| `kosha evidence show` | Show one stored source-run's metadata (--content also prints its evidence text). |
+| `kosha evidence replay` | Replay a stored source run through the current pipeline as a zero-network dry run. |
 | `kosha recover` | Backup-tag-based recovery: list backups, restore, or reindex. |
 | `kosha recover backups` | List available backup tags. |
 | `kosha recover restore` | Restore a bundle to a backup tag's recorded state. |
