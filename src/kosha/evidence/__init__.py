@@ -20,9 +20,13 @@ from kosha.evidence.paths import (
     validate_digest,
     validate_run_id,
 )
+from kosha.evidence.store import EvidenceConflictError, EvidenceCorruptionError, EvidenceStore
 
 __all__ = [
+    "EvidenceConflictError",
+    "EvidenceCorruptionError",
     "EvidenceDocument",
+    "EvidenceStore",
     "InvalidDigestError",
     "InvalidRunIdError",
     "RunStatus",
