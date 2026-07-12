@@ -31,6 +31,7 @@ from pathlib import Path
 import pytest
 
 from kosha.approve import Decision, Lane
+from kosha.evidence import hash_evidence_text
 from kosha.git_store import GitStore
 from kosha.ingest import (
     IngestGuardrailError,
@@ -40,6 +41,7 @@ from kosha.ingest import (
     ingest_notion_export,
     ingest_slack_export,
 )
+from kosha.ingest.guardrails import bind_evidence
 from kosha.model import RawDoc
 from kosha.pipeline import ingest
 from kosha.providers import ExtractiveGenerationProvider, LexicalEmbeddingProvider
@@ -297,3 +299,85 @@ def test_secret_like_content_routes_to_block_instead_of_auto_committing(
     assert result.committed is False
     assert store.current_sha("main") == main_sha
     assert not store.branch_exists("ingest/secret-probe")
+
+
+# ---------------------------------------------------------------------------
+# 4. Every core adapter's RawDocs cross the same evidence boundary: clean text
+#    from any adapter shape hashes and binds identically once run through
+#    bind_evidence (DEVELOPMENT_PLAN.md M3).
+# ---------------------------------------------------------------------------
+
+_CLEAN_BODY = "Ordinary policy prose with no secret-like content at all."
+
+
+def _clean_markdown(tmp_path: Path) -> Path:
+    (tmp_path / "clean.md").write_text(f"# Clean\n\n{_CLEAN_BODY}\n", encoding="utf-8")
+    return tmp_path
+
+
+def _clean_confluence_json(tmp_path: Path) -> Path:
+    payload = [{"id": "p1", "title": "Clean", "body": _CLEAN_BODY}]
+    (tmp_path / "pages.json").write_text(json.dumps(payload), encoding="utf-8")
+    return tmp_path
+
+
+def _clean_slack_json(tmp_path: Path) -> Path:
+    payload = [{"ts": "1", "user": "agent", "text": _CLEAN_BODY}]
+    (tmp_path / "general.json").write_text(json.dumps(payload), encoding="utf-8")
+    return tmp_path
+
+
+_EVIDENCE_BOUNDARY_CASES = [
+    pytest.param(ingest_folder, _clean_markdown, id="folder"),
+    pytest.param(ingest_confluence_export, _clean_markdown, id="confluence-markdown"),
+    pytest.param(ingest_confluence_export, _clean_confluence_json, id="confluence-json"),
+    pytest.param(ingest_notion_export, _clean_markdown, id="notion-markdown"),
+    pytest.param(ingest_slack_export, _clean_slack_json, id="slack-json"),
+]
+
+
+@pytest.mark.parametrize("adapter, build_root", _EVIDENCE_BOUNDARY_CASES)
+def test_every_core_adapters_docs_bind_to_a_matching_content_digest(
+    adapter: _AdapterFn, build_root: _BuildRootFn, tmp_path: Path
+) -> None:
+    root = build_root(tmp_path)
+    docs = adapter(root)
+    assert docs
+    bound, run = bind_evidence(
+        docs,
+        run_id="run-parity",
+        bundle_identity="a" * 64,
+        source_instance_id="parity",
+        started_at=_ASOF,
+        completed_at=_ASOF,
+    )
+    assert run is not None
+    for raw in bound:
+        assert raw.evidence_sha256 == hash_evidence_text(raw.text)
+    assert {doc.sha256 for doc in run.run.evidence} == {raw.evidence_sha256 for raw in bound}
+
+
+@requires_documents_extra
+def test_the_optional_document_adapters_docs_bind_to_a_matching_content_digest(
+    tmp_path: Path,
+) -> None:
+    from docx import Document
+
+    from kosha.ingest.documents import ingest_documents
+
+    document = Document()
+    document.add_paragraph(_CLEAN_BODY)
+    docx_path = tmp_path / "clean.docx"
+    document.save(docx_path)
+
+    docs = ingest_documents(docx_path)
+    bound, run = bind_evidence(
+        docs,
+        run_id="run-parity-doc",
+        bundle_identity="a" * 64,
+        source_instance_id="parity",
+        started_at=_ASOF,
+        completed_at=_ASOF,
+    )
+    assert run is not None
+    assert bound[0].evidence_sha256 == hash_evidence_text(bound[0].text)
