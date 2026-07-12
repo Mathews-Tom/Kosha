@@ -108,12 +108,20 @@ def apply_update(
                 asserted_at=asserted_at,
                 citations=[citation],
                 reviewer=reviewer,
+                source_run_id=draft.source_run_id,
+                evidence_sha256=draft.evidence_sha256,
             )
             superseded = True
             continue
         # Additive or conflicting: M9 reconcile (temporal -> authority -> escalate).
         new_claim = make_claim(
-            statement, source.source_id, asserted_at, citations=[citation], reviewer=reviewer
+            statement,
+            source.source_id,
+            asserted_at,
+            citations=[citation],
+            reviewer=reviewer,
+            source_run_id=draft.source_run_id,
+            evidence_sha256=draft.evidence_sha256,
         )
         reconciliation = reconcile(
             claims, new_claim, authority=authority, judge=judge, asof=asserted_at

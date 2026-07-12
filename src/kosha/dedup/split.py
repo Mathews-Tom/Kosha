@@ -6,11 +6,18 @@ mixes several concepts and must be re-segmented before each piece is re-resolved
 Splitting reuses the M5 extractor's deterministic heading segmentation so a draft
 splits exactly the way a fresh ingest would, and each sub-draft inherits the
 parent's provenance (``source_id``) and ``type``.
+
+A sub-draft is a re-segmentation of the *same* already-accepted text, not a new
+fetch, so it inherits the parent draft's evidence identity (``source_run_id`` /
+``evidence_sha256``) verbatim rather than re-deriving one from the synthetic
+``RawDoc`` built here for re-segmentation (that document's ``text`` is a subset
+of the original, so it does not itself carry a stored evidence digest).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 
 from kosha.extract import ConceptDraft, extract_concepts
 from kosha.model import RawDoc, Source, SourceKind
@@ -30,7 +37,15 @@ def split_draft(draft: ConceptDraft, provider: GenerationProvider) -> list[Conce
         ),
         text=draft.body,
     )
-    return extract_concepts(raw, provider, type_hint=draft.type)
+    sub_drafts = extract_concepts(raw, provider, type_hint=draft.type)
+    return [
+        replace(
+            sub,
+            source_run_id=draft.source_run_id,
+            evidence_sha256=draft.evidence_sha256,
+        )
+        for sub in sub_drafts
+    ]
 
 
 def make_splitter(provider: GenerationProvider) -> Splitter:

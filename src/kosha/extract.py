@@ -35,6 +35,9 @@ class ConceptDraft:
 
     ``source_id`` carries provenance back to the originating :class:`Source` so
     the dedup resolver (M6) and merge/writer (M7) can stamp claims with it.
+    ``source_run_id`` / ``evidence_sha256`` carry the originating
+    :class:`~kosha.model.RawDoc`'s evidence identity (DEVELOPMENT_PLAN.md M3)
+    so a minted claim resolves back to stored evidence without re-fetching.
     """
 
     title: str
@@ -42,6 +45,8 @@ class ConceptDraft:
     description: str
     type: str
     source_id: str
+    source_run_id: str | None = None
+    evidence_sha256: str | None = None
 
 
 def extract_concepts(
@@ -62,6 +67,8 @@ def extract_concepts(
                 description=_describe(resolved, body, provider),
                 type=type_hint,
                 source_id=raw.source.source_id,
+                source_run_id=raw.source_run_id,
+                evidence_sha256=raw.evidence_sha256,
             )
         )
     return drafts

@@ -61,7 +61,13 @@ def claims_from_draft(
     statements = segment_statements(draft.body) or [draft.description]
     return [
         make_claim(
-            statement, source.source_id, asserted_at, citations=[citation], reviewer=reviewer
+            statement,
+            source.source_id,
+            asserted_at,
+            citations=[citation],
+            reviewer=reviewer,
+            source_run_id=draft.source_run_id,
+            evidence_sha256=draft.evidence_sha256,
         )
         for statement in statements
     ]
