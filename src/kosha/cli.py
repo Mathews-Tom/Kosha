@@ -1180,6 +1180,7 @@ def _run_ingest_review(args: argparse.Namespace) -> int:
         asof=asof,
         source=source,
         reviewer=reviewer,
+        evidence_run=dry_result.evidence_run,
     )
     if args.json:
         payload = cli_json.ingest_json(result, dry_run=False)

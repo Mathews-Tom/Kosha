@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from kosha.approve import (
     DEFAULT_THRESHOLDS,
@@ -42,11 +43,12 @@ from kosha.dedup import (
 )
 from kosha.dedup.resolver import Decision as DedupDecision
 from kosha.dedup.split import Splitter
+from kosha.evidence import EvidenceStore, bundle_identity, evidence_root
 from kosha.extract import ConceptDraft, extract_concepts
 from kosha.git_store import GitStore, IngestLock
 from kosha.index.embedding import EmbeddingIndex, index_text
 from kosha.indexlog import LogEntry, append_entries, regenerate_indexes
-from kosha.ingest import ingest_folder
+from kosha.ingest import EvidenceRun, bind_evidence, ingest_folder, persist_evidence_run
 from kosha.link import LexicalRelator, compute_backlinks, crosslink
 from kosha.merge.create import create_concept
 from kosha.merge.update import LexicalClaimTargeter
@@ -92,6 +94,7 @@ class _ChangeMeta:
     confidence: float
     impact: Impact
     contradiction: ContradictionState
+    evidence: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -133,6 +136,7 @@ class IngestResult:
     backup_tag: str | None = None
     reviewer: str | None = None
     audit: list[DecisionRecord] = field(default_factory=list)
+    evidence_run: EvidenceRun | None = None
 
 
 def decide_plan(
@@ -170,6 +174,7 @@ def ingest(
     generation_provider: GenerationProvider | None = None,
     telemetry_sink: TelemetrySink | None = None,
     raw_docs: list[RawDoc] | None = None,
+    evidence_store: EvidenceStore | None = None,
 ) -> IngestResult:
     """Ingest ``source`` into the bundle at ``bundle_root`` behind the approve gate.
 
@@ -186,6 +191,14 @@ def ingest(
         raw_docs
         if raw_docs is not None
         else ingest_folder(source, authority_rank=source_authority)
+    )
+    docs, evidence_run = bind_evidence(
+        docs,
+        run_id=uuid4().hex,
+        bundle_identity=bundle_identity(bundle_root),
+        source_instance_id=str(source),
+        started_at=asof,
+        completed_at=asof,
     )
     bundle = (
         load_bundle(bundle_root) if bundle_root.is_dir() else Bundle(root_path=str(bundle_root))
@@ -234,7 +247,7 @@ def ingest(
             provider_name=embedder.name,
         )
     if dry_run:
-        return IngestResult(plan, routing, audit=accum.audit)
+        return IngestResult(plan, routing, audit=accum.audit, evidence_run=evidence_run)
 
     decision = decide_plan(routing, reader=reader, assume_yes=assume_yes)
     emit_decision(
@@ -243,9 +256,28 @@ def ingest(
         outcome=decision.value,
         lane=routing.lane.label,
     )
-    result = IngestResult(plan, routing, decision=decision, reviewer=reviewer, audit=accum.audit)
+    result = IngestResult(
+        plan,
+        routing,
+        decision=decision,
+        reviewer=reviewer,
+        audit=accum.audit,
+        evidence_run=evidence_run,
+    )
     if decision is Decision.APPROVE and not plan.is_empty:
-        commit_plan(plan, routing, bundle_root, asof, source, git_store, branch, reviewer, result)
+        commit_plan(
+            plan,
+            routing,
+            bundle_root,
+            asof,
+            source,
+            git_store,
+            branch,
+            reviewer,
+            result,
+            evidence_run=evidence_run,
+            evidence_store=evidence_store,
+        )
     return result
 
 
@@ -297,6 +329,7 @@ def _apply(
             confidence=confidence,
             impact=Impact.MEDIUM if result.superseded else Impact.LOW,
             contradiction=result.contradiction,
+            evidence=frozenset({draft.evidence_sha256}) if draft.evidence_sha256 else frozenset(),
         )
         accum.flags.extend(
             Flag(
@@ -316,6 +349,7 @@ def _apply(
             confidence=confidence,
             impact=Impact.LOW,
             contradiction=ContradictionState.NONE,
+            evidence=frozenset({draft.evidence_sha256}) if draft.evidence_sha256 else frozenset(),
         )
 
 
@@ -349,6 +383,7 @@ def _concept_changes(
                 confidence=info.confidence if info else 1.0,
                 impact=info.impact if info else Impact.LOW,
                 contradiction=info.contradiction if info else ContradictionState.NONE,
+                evidence_sha256=info.evidence if info else frozenset(),
             )
         )
     return changes
@@ -411,6 +446,8 @@ def commit_plan(
     branch: str | None,
     reviewer: str | None,
     result: IngestResult,
+    evidence_run: EvidenceRun | None = None,
+    evidence_store: EvidenceStore | None = None,
 ) -> None:
     """Write ``plan``'s changes and commit them on an ingest branch with a backup tag.
 
@@ -429,6 +466,9 @@ def commit_plan(
     the durable audit detail the compliance export reads back out of git
     history, since the plan/routing objects themselves are not persisted.
     """
+    if evidence_run is not None:
+        vault = evidence_store or EvidenceStore(evidence_root(bundle_root))
+        persist_evidence_run(vault, evidence_run)
     store = git_store or GitStore(bundle_root)
     with IngestLock(store.repo):
         branch_name = branch or f"ingest/{source.name}-{asof:%Y%m%d%H%M%S}"
@@ -441,6 +481,16 @@ def commit_plan(
             written.append(path)
         body = "\n".join(_change_line(route.change, route.lane.label) for route in routing.routes)
         message = f"feat(kosha): ingest {source.name}\n\n{body}"
+        if evidence_run is not None:
+            digests = sorted({d for change in plan.changes for d in change.evidence_sha256})
+            if digests:
+                trailer = "\n".join(
+                    [
+                        f"Source-Run: {evidence_run.run.run_id}",
+                        *(f"Evidence-SHA256: {d}" for d in digests),
+                    ]
+                )
+                message = f"{message}\n\n{trailer}"
         if reviewer is not None:
             message = f"{message}\n\nReviewed-by: {reviewer}"
         result.commit_sha = store.commit(written, message)
@@ -459,6 +509,8 @@ def commit_reviewed_plan(
     reviewer: str | None = None,
     git_store: GitStore | None = None,
     branch: str | None = None,
+    evidence_run: EvidenceRun | None = None,
+    evidence_store: EvidenceStore | None = None,
 ) -> IngestResult:
     """Commit an already per-item-decided plan (the CLI ``--review`` flow).
 
@@ -468,9 +520,23 @@ def commit_reviewed_plan(
     uncommitted result, the same default-safe outcome a blanket rejection
     produces.
     """
-    result = IngestResult(plan, routing, decision=Decision.APPROVE, reviewer=reviewer)
+    result = IngestResult(
+        plan, routing, decision=Decision.APPROVE, reviewer=reviewer, evidence_run=evidence_run
+    )
     if not plan.is_empty:
-        commit_plan(plan, routing, bundle_root, asof, source, git_store, branch, reviewer, result)
+        commit_plan(
+            plan,
+            routing,
+            bundle_root,
+            asof,
+            source,
+            git_store,
+            branch,
+            reviewer,
+            result,
+            evidence_run=evidence_run,
+            evidence_store=evidence_store,
+        )
     return result
 
 
